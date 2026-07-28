@@ -1,4 +1,5 @@
 import type { BuildingDocument } from './buildingTypes.ts';
+import { CURRENT_SCHEMA_VERSION } from './constants.ts';
 
 export function createEmptyBuilding(
   buildingId: string,
@@ -7,7 +8,7 @@ export function createEmptyBuilding(
   now = new Date().toISOString(),
 ): BuildingDocument {
   return {
-    schema_version: '2.0.0',
+    schema_version: CURRENT_SCHEMA_VERSION,
     building_id: buildingId,
     coordinate_system: {
       type: 'local_cartesian',
@@ -21,6 +22,20 @@ export function createEmptyBuilding(
       wall_height_mm: 3000,
       snap_enabled: true,
       grid_size_mm: 100,
+    },
+    metadata: {
+      name: buildingId,
+      floor_index: 1,
+      created_at: now,
+      updated_at: now,
+      revision: 0,
+      status: 'draft',
+    },
+    site: {
+      north_angle_deg: 0,
+    },
+    workflow: {
+      status: 'draft',
     },
     reference_image: {
       path: referencePath,
@@ -52,12 +67,6 @@ export function createEmptyBuilding(
     custom_function_types: [],
     validation: {
       issues: [],
-    },
-    metadata: {
-      created_at: now,
-      updated_at: now,
-      revision: 0,
-      status: 'draft',
     },
   };
 }

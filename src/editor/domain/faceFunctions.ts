@@ -1,8 +1,14 @@
+// ============================================================
+// 房间功能标注 — v2.1.0
+// 使用集中字典 ROOM_FUNCTION_DICTIONARY
+// ============================================================
+
 import type {
   BuildingDocument,
   BuildingFace,
   CustomFunctionType,
 } from './buildingTypes.ts';
+import { ROOM_FUNCTION_DICTIONARY } from './constants.ts';
 
 export interface FaceFunctionType {
   code: string;
@@ -10,21 +16,17 @@ export interface FaceFunctionType {
   color: string;
 }
 
-export const RURAL_FACE_FUNCTION_PRESETS: readonly FaceFunctionType[] = [
-  { code: 'living_room', name: '堂屋/客厅', color: '#f2c879' },
-  { code: 'bedroom', name: '卧室', color: '#c9b8e8' },
-  { code: 'kitchen', name: '厨房', color: '#ef9a74' },
-  { code: 'dining_room', name: '餐厅', color: '#f4d58d' },
-  { code: 'bathroom', name: '卫生间', color: '#89c8d0' },
-  { code: 'storage', name: '储藏间', color: '#b7a58c' },
-  { code: 'farm_tool_room', name: '农具间', color: '#9eb58f' },
-  { code: 'woodshed', name: '柴房', color: '#a98263' },
-  { code: 'livestock_room', name: '牲畜房', color: '#c49a6c' },
-  { code: 'corridor', name: '走廊', color: '#d5d9df' },
-  { code: 'porch', name: '门廊', color: '#a9c5a0' },
-  { code: 'other', name: '其他', color: '#cbd5e1' },
-] as const;
+/** 预设功能类型（从字典生成，保留兼容） */
+export const RURAL_FACE_FUNCTION_PRESETS: readonly FaceFunctionType[] =
+  ROOM_FUNCTION_DICTIONARY.map((entry) => ({
+    code: entry.code,
+    name: entry.name,
+    color: entry.color,
+  }));
 
+/**
+ * 为面片分配功能类型
+ */
 export function assignFaceFunction(
   face: BuildingFace,
   functionType: FaceFunctionType,
@@ -35,6 +37,24 @@ export function assignFaceFunction(
     display_name: functionType.name,
     color: functionType.color,
   };
+}
+
+/**
+ * 批量分配房间功能
+ */
+export function batchAssignFaceFunction(
+  document: BuildingDocument,
+  faceIds: string[],
+  functionType: FaceFunctionType,
+): BuildingDocument {
+  const updatedFaces = { ...document.faces };
+  for (const faceId of faceIds) {
+    const face = updatedFaces[faceId];
+    if (face) {
+      updatedFaces[faceId] = assignFaceFunction(face, functionType);
+    }
+  }
+  return { ...document, faces: updatedFaces };
 }
 
 function nextCustomCode(document: BuildingDocument): string {
@@ -63,6 +83,9 @@ export type CreateCustomFaceFunctionResult =
   | { ok: true; document: BuildingDocument; functionType: CustomFunctionType }
   | { ok: false; document: BuildingDocument; error: 'EMPTY_NAME' | 'FACE_NOT_FOUND' };
 
+/**
+ * 创建自定义面片功能并分配到指定面片
+ */
 export function createAndAssignCustomFaceFunction(
   document: BuildingDocument,
   faceId: string,

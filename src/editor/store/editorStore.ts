@@ -1,12 +1,15 @@
 import { create } from 'zustand';
 import type { BuildingDocument } from '@/editor/domain/buildingTypes.ts';
 import type { Viewport } from '@/editor/canvas/Viewport.ts';
+import { computeBuildingStatistics } from '@/editor/domain/buildingStatistics.ts';
+import { validateBuildingDocumentFull } from '@/editor/domain/buildingValidation.ts';
 
 export type BuildingSaveStatus =
   | 'saved'
   | 'saving'
   | 'unsaved'
-  | 'error';
+  | 'error'
+  | 'conflict';
 
 export type EditorTool =
   | 'select'
@@ -17,7 +20,10 @@ export type EditorTool =
   | 'exterior_window'
   | 'interior_door'
   | 'passage'
-  | 'adjust_reference';
+  | 'adjust_reference'
+  | 'room_label_brush'
+  | 'reference_calibration'
+  | 'north_orientation';
 
 export type EditorEntityType =
   | 'wall'
@@ -37,7 +43,11 @@ export interface EditorStore {
   buildingSaveStatus: BuildingSaveStatus;
   buildingSaveError: string | null;
   tool: EditorTool;
+  /** 房间标注刷当前选中的功能代码 */
+  brushFunctionCode: string;
   selection: { type: EditorEntityType; id: string } | null;
+  /** 多选（用于批量标注） */
+  multiSelection: Array<{ type: EditorEntityType; id: string }>;
   snapMode: 'grid' | 'geometry' | 'none';
   directionMode: 'orthogonal' | 'diagonal45' | 'free';
   commandInput: string;
@@ -56,8 +66,16 @@ export interface EditorStore {
   undo: () => void;
   redo: () => void;
   setTool: (tool: EditorTool) => void;
+  setBrushFunctionCode: (code: string) => void;
   setSelection: (
     selection: { type: EditorEntityType; id: string } | null,
+  ) => void;
+  toggleMultiSelection: (
+    selection: { type: EditorEntityType; id: string },
+  ) => void;
+  clearMultiSelection: () => void;
+  setMultiSelection: (
+    selections: Array<{ type: EditorEntityType; id: string }>,
   ) => void;
   setSnapMode: (mode: 'grid' | 'geometry' | 'none') => void;
   setDirectionMode: (
@@ -69,7 +87,9 @@ export interface EditorStore {
   beginBuildingSave: () => void;
   finishBuildingSave: (document: BuildingDocument) => void;
   failBuildingSave: (error: string) => void;
+  conflictSave: (error: string) => void;
   closeBuilding: () => void;
+  computeStats: () => void;
 }
 
 const INITIAL_VIEWPORT: Viewport = {
@@ -84,7 +104,9 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   buildingSaveStatus: 'saved',
   buildingSaveError: null,
   tool: 'select',
+  brushFunctionCode: 'living_room',
   selection: null,
+  multiSelection: [],
   snapMode: 'geometry',
   directionMode: 'orthogonal',
   commandInput: '',
@@ -101,6 +123,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       buildingSaveError: null,
       tool: 'select',
       selection: null,
+      multiSelection: [],
       commandInput: '',
       undoStack: [],
       redoStack: [],
@@ -114,6 +137,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       const previous = state.buildingDocument;
       const next = update(previous);
       if (next === previous) return state;
+
       return {
         buildingDocument: next,
         changeVersion: state.changeVersion + 1,
@@ -171,7 +195,29 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       commandInput: '',
       selection: tool === 'select' ? get().selection : null,
     }),
-  setSelection: (selection) => set({ selection }),
+  setBrushFunctionCode: (brushFunctionCode) => set({ brushFunctionCode }),
+  setSelection: (selection) =>
+    set({ selection, multiSelection: [] }),
+  toggleMultiSelection: (sel) =>
+    set((state) => {
+      const exists = state.multiSelection.some(
+        (s) => s.type === sel.type && s.id === sel.id,
+      );
+      if (exists) {
+        return {
+          multiSelection: state.multiSelection.filter(
+            (s) => !(s.type === sel.type && s.id === sel.id),
+          ),
+        };
+      }
+      return {
+        multiSelection: [...state.multiSelection, sel],
+      };
+    }),
+  clearMultiSelection: () =>
+    set({ multiSelection: [] }),
+  setMultiSelection: (selections) =>
+    set({ multiSelection: selections }),
   setSnapMode: (snapMode) => set({ snapMode }),
   setDirectionMode: (directionMode) => set({ directionMode }),
   setCommandInput: (commandInput) => set({ commandInput }),
@@ -192,6 +238,9 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   failBuildingSave: (error) =>
     set({ buildingSaveStatus: 'error', buildingSaveError: error }),
 
+  conflictSave: (error) =>
+    set({ buildingSaveStatus: 'conflict', buildingSaveError: error }),
+
   closeBuilding: () =>
     set({
       buildingDocument: null,
@@ -200,8 +249,22 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       buildingSaveError: null,
       tool: 'select',
       selection: null,
+      multiSelection: [],
       commandInput: '',
       undoStack: [],
       redoStack: [],
     }),
+
+  // 惰性计算统计和校验（不在 transact 中同步执行，避免破坏事务引用）
+  computeStats: () => {
+    const doc = get().buildingDocument;
+    if (!doc) return;
+    set({
+      buildingDocument: {
+        ...doc,
+        statistics: computeBuildingStatistics(doc),
+        structured_validation: validateBuildingDocumentFull(doc),
+      },
+    });
+  },
 }));

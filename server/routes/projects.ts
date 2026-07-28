@@ -14,6 +14,8 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export function createProjectRouter(projectService: ProjectService): Router {
   const router = Router();
 
+  // ---- 项目列表与创建 ----
+
   router.get('/', async (_request, response) => {
     response.json(await projectService.list());
   });
@@ -82,28 +84,104 @@ export function createProjectRouter(projectService: ProjectService): Router {
     response.status(201).json(document);
   });
 
-  router.get(/^\/([^/]+)\/files\/(.+)$/, (request, response) => {
-    const buildingId = request.params[0];
-    const relativePath = request.params[1];
-    response.sendFile(projectService.resolveFile(buildingId, relativePath));
-  });
-
-  router.put('/:buildingId/autosave', async (request, response) => {
-    const saved = await projectService.autosave(
-      request.params.buildingId,
-      request.body as BuildingDocument,
-    );
-    response.json(saved);
-  });
+  // ---- 回收站 ----
 
   // NOTE: /trash must be registered before /:buildingId to avoid matching "trash" as an ID.
   router.get('/trash', async (_request, response) => {
     response.json(await projectService.listTrashed());
   });
 
+  // ---- 文件服务 ----
+
+  router.get(/^\/([^/]+)\/files\/(.+)$/, (request, response) => {
+    const buildingId = request.params[0];
+    const relativePath = request.params[1];
+    response.sendFile(projectService.resolveFile(buildingId, relativePath));
+  });
+
+  // ---- 单个项目操作 ----
+
   router.get('/:buildingId', async (request, response) => {
     response.json(await projectService.open(request.params.buildingId));
   });
+
+  // ---- v2.1.0: 带 revision 锁的自动保存 ----
+
+  router.put('/:buildingId/autosave', async (request, response) => {
+    const body = request.body as BuildingDocument & { _clientRevision?: number };
+    const clientRevision =
+      typeof body._clientRevision === 'number'
+        ? body._clientRevision
+        : (body.metadata?.revision ?? undefined);
+
+    const saved = await projectService.autosave(
+      request.params.buildingId,
+      body,
+      clientRevision,
+    );
+    response.json(saved);
+  });
+
+  // ---- v2.1.0: 工作流状态转换 ----
+
+  router.post('/:buildingId/submit-review', async (request, response) => {
+    response.json(
+      await projectService.submitReview(request.params.buildingId),
+    );
+  });
+
+  router.post('/:buildingId/review', async (request, response) => {
+    const reviewer =
+      typeof request.body?.reviewer === 'string'
+        ? request.body.reviewer
+        : undefined;
+    response.json(
+      await projectService.review(request.params.buildingId, reviewer),
+    );
+  });
+
+  router.post('/:buildingId/complete', async (request, response) => {
+    response.json(
+      await projectService.complete(request.params.buildingId),
+    );
+  });
+
+  router.post('/:buildingId/reopen', async (request, response) => {
+    response.json(
+      await projectService.reopen(request.params.buildingId),
+    );
+  });
+
+  // ---- v2.1.0: Revision 历史 ----
+
+  router.get('/:buildingId/revisions', async (request, response) => {
+    response.json(
+      await projectService.listRevisions(request.params.buildingId),
+    );
+  });
+
+  router.get('/:buildingId/revisions/:revision', async (request, response) => {
+    response.json(
+      await projectService.getRevision(
+        request.params.buildingId,
+        Number(request.params.revision),
+      ),
+    );
+  });
+
+  router.post(
+    '/:buildingId/revisions/:revision/restore',
+    async (request, response) => {
+      response.json(
+        await projectService.restoreRevision(
+          request.params.buildingId,
+          Number(request.params.revision),
+        ),
+      );
+    },
+  );
+
+  // ---- 删除与恢复 ----
 
   router.delete('/:buildingId', async (request, response) => {
     try {
@@ -124,6 +202,8 @@ export function createProjectRouter(projectService: ProjectService): Router {
       await projectService.restore(request.params.buildingId),
     );
   });
+
+  // ---- 导出 ----
 
   router.get('/:buildingId/export', async (request, response) => {
     const scale =

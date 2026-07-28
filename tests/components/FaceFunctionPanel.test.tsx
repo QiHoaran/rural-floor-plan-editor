@@ -36,14 +36,18 @@ describe('FaceFunctionPanel', () => {
       'bedroom',
       'kitchen',
       'dining_room',
+      'toilet',
       'bathroom',
       'storage',
-      'farm_tool_room',
-      'woodshed',
-      'livestock_room',
       'corridor',
-      'porch',
+      'staircase',
+      'utility_room',
+      'livestock_room',
+      'agricultural',
+      'garage',
+      'courtyard',
       'other',
+      'unknown',
     ]);
     render(<FaceFunctionPanel faceId="face_1" />);
     const beforeUndo = useEditorStore.getState().undoStack.length;

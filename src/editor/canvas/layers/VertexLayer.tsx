@@ -16,8 +16,43 @@ interface VertexLayerProps {
   ) => boolean;
 }
 
-const VERTEX_RADIUS_PX = 6;
-const HIT_RADIUS_PX = 14;
+/**
+ * 顶点大小计算策略：
+ * - 基准：顶点直径 = 墙体宽度（radius = wallThicknessMm / 2），
+ *   使得顶点在正常缩放级别下刚好填满墙体接头
+ * - 缩小时放大：当画布缩小时，保证最小屏幕像素尺寸，方便点选
+ * - 放大时缩小：当画布放大时，限制最大屏幕像素尺寸，避免遮挡几何
+ */
+
+/** 顶点在屏幕上的最小半径（px），保证缩小画布时仍可点选 */
+const MIN_SCREEN_RADIUS_PX = 8;
+/** 顶点在屏幕上的最大半径（px），避免放大画布时遮挡过多 */
+const MAX_SCREEN_RADIUS_PX = 22;
+/** 命中区域额外扩展（px），在视觉半径基础上增加 */
+const HIT_PADDING_PX = 8;
+
+/**
+ * 基于墙体宽度的自适应顶点半径。
+ * 基准直径为墙体宽度，屏幕像素尺寸约束在 [minScreenPx, maxScreenPx] 范围内。
+ */
+function adaptiveRadius(
+  wallThicknessMm: number,
+  pixelsPerMm: number,
+  minScreenPx: number,
+  maxScreenPx: number,
+): number {
+  // 基准：半径 = 墙体半宽（直径 = 墙体全宽）
+  const baseRadiusMm = wallThicknessMm / 2;
+  // 基准屏幕像素尺寸
+  const rawScreenPx = baseRadiusMm * pixelsPerMm;
+  // 钳制屏幕像素
+  const clampedScreenPx = Math.max(
+    minScreenPx,
+    Math.min(maxScreenPx, rawScreenPx),
+  );
+  // 转回世界坐标 mm
+  return clampedScreenPx / pixelsPerMm;
+}
 
 export function VertexLayer({
   document,
@@ -28,8 +63,20 @@ export function VertexLayer({
   selectable = true,
   shouldConsumePointerDown = (event) => event.button === 0,
 }: VertexLayerProps) {
-  const radius = VERTEX_RADIUS_PX / pixelsPerMm;
-  const hitRadius = HIT_RADIUS_PX / pixelsPerMm;
+  const wallThicknessMm = document.building_defaults.wall_thickness_mm;
+
+  const radius = adaptiveRadius(
+    wallThicknessMm,
+    pixelsPerMm,
+    MIN_SCREEN_RADIUS_PX,
+    MAX_SCREEN_RADIUS_PX,
+  );
+  const hitRadius = adaptiveRadius(
+    wallThicknessMm,
+    pixelsPerMm,
+    MIN_SCREEN_RADIUS_PX + HIT_PADDING_PX,
+    MAX_SCREEN_RADIUS_PX + HIT_PADDING_PX,
+  );
   return (
     <g aria-label="顶点图层">
       {Object.entries(document.vertices).map(([vertexId, vertex]) => {
@@ -72,7 +119,7 @@ export function VertexLayer({
                 onSelectVertex(vertexId);
               }}
             />
-            {/* Visual circle */}
+            {/* Visual circle — strokeWidth 已除以 pixelsPerMm，与 transform 抵消后保持恒定屏幕像素 */}
             <circle
               data-testid={`vertex-visual-${vertexId}`}
               cx={vertex.x_mm}
@@ -81,7 +128,6 @@ export function VertexLayer({
               fill={selected ? '#2563eb' : '#f59e0b'}
               stroke={selected ? '#1d4ed8' : '#d97706'}
               strokeWidth={selected ? 2 / pixelsPerMm : 1 / pixelsPerMm}
-              vectorEffect="non-scaling-stroke"
               pointerEvents="none"
             />
           </g>

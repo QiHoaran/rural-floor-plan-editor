@@ -1,0 +1,276 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://rural-floor-plan-editor/schemas/building.schema.json",
+  "title": "BuildingDocument v2.1.0",
+  "description": "乡村住宅平面图统一建筑数据模型 — 所有几何单位为毫米",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "building_id",
+    "metadata",
+    "site",
+    "workflow",
+    "coordinate_system",
+    "building_defaults",
+    "reference_image",
+    "floors",
+    "vertices",
+    "walls",
+    "wall_elements",
+    "faces",
+    "outside_regions",
+    "relations",
+    "validation"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema 版本号",
+      "enum": ["2.1.0"]
+    },
+    "building_id": {
+      "type": "string",
+      "description": "建筑唯一标识",
+      "minLength": 1
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["name", "floor_index", "created_at", "updated_at", "revision", "status"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "village_code": { "type": "string" },
+        "household_code": { "type": "string" },
+        "floor_index": { "type": "integer", "minimum": 1 },
+        "notes": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "revision": { "type": "integer", "minimum": 0 },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "pending_review", "reviewed", "complete"]
+        }
+      }
+    },
+    "site": {
+      "type": "object",
+      "required": ["north_angle_deg"],
+      "properties": {
+        "north_angle_deg": { "type": "number", "minimum": 0, "maximum": 360 },
+        "location_name": { "type": "string" },
+        "climate_zone": { "type": "string" }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["draft", "pending_review", "reviewed", "complete"]
+        },
+        "reviewer": { "type": "string" },
+        "reviewed_at": { "type": "string", "format": "date-time" },
+        "completed_at": { "type": "string", "format": "date-time" },
+        "ignored_warnings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "issue_id": { "type": "string" },
+              "reason": { "type": "string" },
+              "ignored_at": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "coordinate_system": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "local_cartesian" },
+        "input_unit": { "const": "m" },
+        "storage_unit": { "const": "mm" },
+        "origin": { "const": "bottom_left" },
+        "precision_mm": { "const": 1 }
+      }
+    },
+    "building_defaults": {
+      "type": "object",
+      "properties": {
+        "wall_thickness_mm": { "type": "integer", "minimum": 1 },
+        "wall_height_mm": { "type": "integer", "minimum": 1 },
+        "snap_enabled": { "type": "boolean" },
+        "grid_size_mm": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "reference_image": {
+      "type": "object",
+      "required": ["path", "mime_type", "width_px", "height_px", "opacity", "transform"],
+      "properties": {
+        "path": { "type": "string" },
+        "mime_type": { "type": "string" },
+        "width_px": { "type": "integer", "minimum": 0 },
+        "height_px": { "type": "integer", "minimum": 0 },
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "transform": {
+          "type": "object",
+          "properties": {
+            "translate_x_mm": { "type": "number" },
+            "translate_y_mm": { "type": "number" },
+            "scale": { "type": "number" },
+            "rotation_deg": { "type": "number" }
+          }
+        }
+      }
+    },
+    "reference_calibration": {
+      "type": "object",
+      "properties": {
+        "calibrated": { "type": "boolean" },
+        "point_a_image": {
+          "type": "object",
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" }
+          }
+        },
+        "point_b_image": {
+          "type": "object",
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" }
+          }
+        },
+        "real_distance_mm": { "type": "number", "minimum": 0 },
+        "mm_per_image_pixel": { "type": "number", "minimum": 0 },
+        "calibrated_at": { "type": "string" }
+      }
+    },
+    "floors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["floor_id", "name", "wall_ids", "face_ids"],
+        "properties": {
+          "floor_id": { "type": "string" },
+          "name": { "type": "string" },
+          "wall_ids": { "type": "array", "items": { "type": "string" } },
+          "face_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "vertices": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["x_mm", "y_mm"],
+        "properties": {
+          "x_mm": { "type": "integer" },
+          "y_mm": { "type": "integer" }
+        }
+      }
+    },
+    "walls": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["start_vertex_id", "end_vertex_id", "wall_type", "thickness_mm", "height_mm", "material_type"],
+        "properties": {
+          "start_vertex_id": { "type": "string" },
+          "end_vertex_id": { "type": "string" },
+          "wall_type": { "type": "string", "enum": ["exterior", "interior", "partition"] },
+          "thickness_mm": { "type": "integer", "minimum": 1 },
+          "height_mm": { "type": "integer", "minimum": 1 },
+          "material_type": {
+            "type": "string",
+            "enum": ["brick", "concrete", "wood", "rammed_earth", "stone", "other"]
+          },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "wall_elements": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["element_type", "host_wall_id", "offset_from_start_mm", "width_mm", "height_mm", "sill_height_mm", "status"],
+        "properties": {
+          "element_type": {
+            "type": "string",
+            "enum": ["exterior_door", "exterior_window", "interior_door", "passage"]
+          },
+          "host_wall_id": { "type": "string" },
+          "offset_from_start_mm": { "type": "integer", "minimum": 0 },
+          "width_mm": { "type": "integer", "minimum": 1 },
+          "height_mm": { "type": "integer", "minimum": 1 },
+          "sill_height_mm": { "type": "integer", "minimum": 0 },
+          "status": { "type": "string", "enum": ["valid", "needs_review"] },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "faces": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["boundary_vertex_ids", "area_mm2"],
+        "properties": {
+          "boundary_vertex_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 3
+          },
+          "area_mm2": { "type": "integer", "minimum": 0 },
+          "function_code": { "type": ["string", "null"] },
+          "display_name": { "type": "string" },
+          "color": { "type": "string" },
+          "local_name": { "type": "string" },
+          "floor_finish": { "type": "string" },
+          "occupied": { "type": "boolean" },
+          "heated": { "type": "boolean" },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "outside_regions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["boundary_vertex_ids", "region_type"],
+        "properties": {
+          "boundary_vertex_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 3
+          },
+          "region_type": { "type": "string", "enum": ["courtyard"] }
+        }
+      }
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "validation": {
+      "type": "object",
+      "required": ["issues"],
+      "properties": {
+        "issues": { "type": "array" }
+      }
+    },
+    "custom_function_types": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "name": { "type": "string" },
+          "color": { "type": "string" }
+        }
+      }
+    }
+  }
+}

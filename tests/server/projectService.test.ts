@@ -55,7 +55,7 @@ describe('ProjectService', () => {
         'utf8',
       ),
     );
-    expect(draft.schema_version).toBe('2.0.0');
+    expect(draft.schema_version).toBe('2.1.0');
     expect(draft.building_id).toBe('house_0001');
   });
 
@@ -99,10 +99,9 @@ describe('ProjectService', () => {
     });
 
     expect(saved.metadata.revision).toBe(1);
-    await expect(service.list()).resolves.toEqual([
+    await expect(service.list()).resolves.toMatchObject([
       {
         building_id: 'house_0001',
-        updated_at: saved.metadata.updated_at,
         status: 'draft',
       },
     ]);

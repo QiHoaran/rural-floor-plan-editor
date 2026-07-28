@@ -33,7 +33,8 @@ import { FaceLayer } from './layers/FaceLayer.tsx';
 import { WallElementLayer } from './layers/WallElementLayer.tsx';
 import { VertexLayer } from './layers/VertexLayer.tsx';
 import { placeWallElement } from '@/editor/commands/wallElementCommand.ts';
-import { moveVertex, deleteVertex } from '@/editor/commands/pointMoveCommand.ts';
+import { moveVertex } from '@/editor/commands/pointMoveCommand.ts';
+import { deleteEntity } from '@/editor/commands/deleteEntityCommand.ts';
 import type { WallElementType } from '@/editor/domain/buildingTypes.ts';
 import { CommandBar } from '@/editor/panels/CommandBar.tsx';
 import {
@@ -163,20 +164,8 @@ export function SvgCanvas() {
         const state = useEditorStore.getState();
         const sel = state.selection;
         const currentDoc = state.buildingDocument;
-        if (sel?.type === 'vertex' && currentDoc) {
-          const connected = Object.values(currentDoc.walls).some(
-            (wall) =>
-              wall.start_vertex_id === sel.id ||
-              wall.end_vertex_id === sel.id,
-          );
-          if (!connected) {
-            const result = deleteVertex(currentDoc, sel.id);
-            if (result.ok) {
-              transact(`删除顶点 ${sel.id}`, () => result.document);
-              setSelection(null);
-            }
-          }
-        }
+
+        // 如果在墙体绘制中，Backspace 删除最后输入字符
         if (event.key === 'Backspace' && command.phase === 'drawing') {
           event.preventDefault();
           setCommand((current) =>
@@ -184,8 +173,49 @@ export function SvgCanvas() {
               ? { ...current, input: current.input.slice(0, -1) }
               : current,
           );
+          return;
         }
-        return;
+
+        // v2.1.0: 删除当前选中的实体（顶点/墙体/构件/面/室外区域）
+        if (sel && currentDoc) {
+          event.preventDefault();
+          const entityType = sel.type;
+          const entityId = sel.id;
+          const entityLabels: Record<string, string> = {
+            vertex: '顶点',
+            wall: '墙体',
+            wall_element: '构件',
+            face: '房间面',
+            outside_region: '室外区域',
+          };
+          const label = entityLabels[entityType] ?? entityType;
+
+          // 删除前确认（仅对墙体、面、构件需要确认，顶点直接删除）
+          const needsConfirm =
+            entityType === 'wall' ||
+            entityType === 'wall_element' ||
+            entityType === 'face' ||
+            entityType === 'outside_region';
+
+          if (
+            needsConfirm &&
+            !confirm(`确认删除此${label}？\n\n该操作会同时清理关联数据，可以通过撤销恢复。`)
+          ) {
+            return;
+          }
+
+          const result = deleteEntity(currentDoc, entityType, entityId);
+          if (result.ok) {
+            transact(`删除${label} ${entityId}`, () => result.document);
+            setSelection(null);
+            setCommandError(null);
+          } else {
+            setCommandError(result.message);
+          }
+          return;
+        }
+
+        if (event.key === 'Delete') return;
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault();

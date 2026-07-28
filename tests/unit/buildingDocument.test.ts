@@ -5,7 +5,7 @@ describe('createEmptyBuilding', () => {
   it('creates a schema v2 single-floor building in integer millimeter storage units', () => {
     const doc = createEmptyBuilding('house_0001', 'reference/original.jpg');
 
-    expect(doc.schema_version).toBe('2.0.0');
+    expect(doc.schema_version).toBe('2.1.0');
     expect(doc.building_id).toBe('house_0001');
     expect(doc.coordinate_system).toEqual({
       type: 'local_cartesian',
@@ -42,11 +42,13 @@ describe('createEmptyBuilding', () => {
       now,
     );
 
-    expect(doc.metadata).toEqual({
+    expect(doc.metadata).toMatchObject({
       created_at: now,
       updated_at: now,
       revision: 0,
       status: 'draft',
+      name: 'house_0002',
+      floor_index: 1,
     });
     expect(doc.building_defaults.wall_thickness_mm).toBe(300);
   });

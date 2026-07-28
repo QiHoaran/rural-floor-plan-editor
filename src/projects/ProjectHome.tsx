@@ -1,3 +1,7 @@
+// ============================================================
+// 项目首页 — v2.1.0 丰富卡片展示
+// ============================================================
+
 import { useCallback, useEffect, useState } from 'react';
 import {
   listProjects,
@@ -13,6 +17,13 @@ import styles from './ProjectHome.module.css';
 interface ProjectHomeProps {
   onOpen: (buildingId: string, document?: BuildingDocument) => void;
 }
+
+const STATUS_LABELS: Record<string, string> = {
+  draft: '草稿',
+  pending_review: '待审核',
+  reviewed: '已审核',
+  complete: '已完成',
+};
 
 export function ProjectHome({ onOpen }: ProjectHomeProps) {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -72,7 +83,9 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
         <div>
           <p className={styles.eyebrow}>RURAL BUILDING DATA</p>
           <h1>乡村住宅矢量编辑器</h1>
-          <p>根据参考草图绘制精确结构，并输出独立建筑包。</p>
+          <p>
+            根据参考草图绘制精确墙体结构，标注房间功能，检查数据质量，输出可用于建筑规律分析、湿热模拟和生成式平面设计的标准化数据。
+          </p>
         </div>
         <button
           className={styles.primaryButton}
@@ -96,11 +109,94 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
                 className={styles.projectCardMain}
                 onClick={() => onOpen(project.building_id)}
               >
-                <strong>{project.building_id}</strong>
-                <span>
-                  {project.status === 'complete' ? '已完成' : '草稿'}
-                </span>
-                <time>{new Date(project.updated_at).toLocaleString()}</time>
+                {/* 项目名称和编号 */}
+                <div className={styles.cardHeader}>
+                  <strong>{project.building_id}</strong>
+                  <span className={styles.cardName}>{project.name}</span>
+                </div>
+
+                {/* 状态和日期 */}
+                <div className={styles.cardMeta}>
+                  <span
+                    className={`${styles.statusBadge} ${styles[project.status]}`}
+                  >
+                    {STATUS_LABELS[project.status] ?? project.status}
+                  </span>
+                  <time>
+                    {new Date(project.updated_at).toLocaleDateString()}
+                  </time>
+                </div>
+
+                {/* 统计信息 */}
+                <div className={styles.cardStats}>
+                  <div className={styles.statRow}>
+                    <span>房间</span>
+                    <span>{project.room_count}</span>
+                  </div>
+                  <div className={styles.statRow}>
+                    <span>面积</span>
+                    <span>{(project.total_floor_area_m2 ?? 0).toFixed(1)} m²</span>
+                  </div>
+                  <div className={styles.statRow}>
+                    <span>标注</span>
+                    <span>{project.room_semantic_progress}%</span>
+                  </div>
+                </div>
+
+                {/* 进度条 */}
+                <div className={styles.progressBars}>
+                  <div className={styles.progressItem}>
+                    <span className={styles.progressLabel}>几何</span>
+                    <div className={styles.progressTrack}>
+                      <div
+                        className={styles.progressFill}
+                        style={{
+                          width: `${project.geometry_progress}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className={styles.progressItem}>
+                    <span className={styles.progressLabel}>语义</span>
+                    <div className={styles.progressTrack}>
+                      <div
+                        className={styles.progressFill}
+                        style={{
+                          width: `${project.room_semantic_progress}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className={styles.progressItem}>
+                    <span className={styles.progressLabel}>门窗</span>
+                    <div className={styles.progressTrack}>
+                      <div
+                        className={styles.progressFill}
+                        style={{
+                          width: `${project.opening_progress}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 问题统计 */}
+                <div className={styles.issueSummary}>
+                  {project.validation_error_count > 0 && (
+                    <span className={styles.errorCount}>
+                      ✕ {project.validation_error_count} 错误
+                    </span>
+                  )}
+                  {project.validation_warning_count > 0 && (
+                    <span className={styles.warningCount}>
+                      ⚠ {project.validation_warning_count} 警告
+                    </span>
+                  )}
+                  {project.validation_error_count === 0 &&
+                    project.validation_warning_count === 0 && (
+                      <span className={styles.cleanBadge}>✓ 无问题</span>
+                    )}
+                </div>
               </button>
               <button
                 className={styles.deleteBtn}

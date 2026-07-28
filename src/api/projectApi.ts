@@ -1,12 +1,29 @@
 import type {
   BuildingDocument,
-  BuildingValidationIssue,
 } from '@/editor/domain/buildingTypes.ts';
+
+// ---- 类型定义 ----
 
 export interface ProjectSummary {
   building_id: string;
+  name: string;
   updated_at: string;
-  status: 'draft' | 'complete';
+  status: string;
+  revision: number;
+  room_count: number;
+  total_floor_area_m2: number;
+  geometry_progress: number;
+  room_semantic_progress: number;
+  opening_progress: number;
+  validation_error_count: number;
+  validation_warning_count: number;
+}
+
+export interface RevisionEntry {
+  revision: number;
+  timestamp: string;
+  status: string;
+  notes?: string;
 }
 
 export interface NewProjectInput {
@@ -24,12 +41,6 @@ export interface OpenProjectResult {
   recovered_from_draft: boolean;
 }
 
-export interface CompleteProjectResult {
-  building_id: string;
-  files: string[];
-  warnings: BuildingValidationIssue[];
-}
-
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -45,6 +56,8 @@ export class ApiError extends Error {
     this.code = code;
   }
 }
+
+// ---- 项目 CRUD ----
 
 export function listProjects(): Promise<ProjectSummary[]> {
   return requestJson('/api/projects');
@@ -66,35 +79,100 @@ export function openProject(
   return requestJson(`/api/projects/${encodeURIComponent(buildingId)}`);
 }
 
+// ---- 自动保存（带 revision 锁） ----
+
 export function autosaveProject(
   buildingId: string,
   document: BuildingDocument,
   signal?: AbortSignal,
 ): Promise<BuildingDocument> {
+  // 发送时附带客户端 revision（服务端乐观锁校验）
+  const body = {
+    ...document,
+    _clientRevision: document.metadata?.revision,
+  };
   return requestJson(
     `/api/projects/${encodeURIComponent(buildingId)}/autosave`,
     {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(document),
+      body: JSON.stringify(body),
       signal,
+    },
+  );
+}
+
+// ---- v2.1.0: 工作流 ----
+
+export function submitReview(buildingId: string): Promise<BuildingDocument> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(buildingId)}/submit-review`,
+    { method: 'POST' },
+  );
+}
+
+export function reviewProject(
+  buildingId: string,
+  reviewer?: string,
+): Promise<BuildingDocument> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(buildingId)}/review`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: reviewer ? JSON.stringify({ reviewer }) : undefined,
     },
   );
 }
 
 export function completeProject(
   buildingId: string,
-  document: BuildingDocument,
-): Promise<CompleteProjectResult> {
+): Promise<BuildingDocument> {
   return requestJson(
     `/api/projects/${encodeURIComponent(buildingId)}/complete`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(document),
-    },
+    { method: 'POST' },
   );
 }
+
+export function reopenProject(
+  buildingId: string,
+): Promise<BuildingDocument> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(buildingId)}/reopen`,
+    { method: 'POST' },
+  );
+}
+
+// ---- v2.1.0: Revision 历史 ----
+
+export function listRevisions(
+  buildingId: string,
+): Promise<RevisionEntry[]> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(buildingId)}/revisions`,
+  );
+}
+
+export function getRevision(
+  buildingId: string,
+  revision: number,
+): Promise<BuildingDocument> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(buildingId)}/revisions/${revision}`,
+  );
+}
+
+export function restoreRevision(
+  buildingId: string,
+  revision: number,
+): Promise<BuildingDocument> {
+  return requestJson(
+    `/api/projects/${encodeURIComponent(buildingId)}/revisions/${revision}/restore`,
+    { method: 'POST' },
+  );
+}
+
+// ---- 删除与恢复 ----
 
 export function trashProject(buildingId: string): Promise<void> {
   return requestJson(
@@ -116,6 +194,8 @@ export function restoreProject(
   );
 }
 
+// ---- 导出 ----
+
 export interface ExportUrlOptions {
   scale?: string;
   scaleBar?: boolean;
@@ -133,6 +213,8 @@ export function exportProjectUrl(
   const qs = params.toString();
   return qs ? `${url}?${qs}` : url;
 }
+
+// ---- HTTP 工具 ----
 
 async function requestJson<T>(
   input: RequestInfo | URL,

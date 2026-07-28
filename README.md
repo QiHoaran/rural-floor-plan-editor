@@ -1,6 +1,8 @@
-# 乡村住宅 CAD 矢量编辑器
+# 乡村住宅矢量编辑器 v0.2
 
-基于点—墙—面拓扑数据模型的农村户型平面图编辑器。根据参考草图绘制精确墙体结构，自动推导房间面、院落和联通关系，支持导出独立建筑包。
+> 本项目是面向乡村住宅矢量化、空间语义标注和科研数据生产的专用平台，不是完整 CAD 软件。
+
+基于点—墙—面拓扑数据模型的农村户型平面图编辑器。根据参考草图绘制精确墙体结构，自动推导房间面、院落和联通关系，支持数据质量审核、批量房间标注和多种科研数据格式导出。
 
 ## 环境要求
 
@@ -90,24 +92,39 @@ rural-floor-plan-editor/
 │   │   ├── cad/                 # CAD 功能
 │   │   │   └── snapEngine.ts    # 吸附引擎
 │   │   ├── domain/              # 领域模型
-│   │   │   ├── buildingTypes.ts     # 类型定义
+│   │   │   ├── buildingTypes.ts     # 核心类型（BuildingDocument v2.1.0）
 │   │   │   ├── buildingDocument.ts  # 文档工厂
-│   │   │   ├── cadInput.ts          # 米制输入解析
-│   │   │   ├── cadWall.ts           # 墙几何计算
-│   │   │   ├── wallEditing.ts       # 墙尺寸编辑
-│   │   │   └── recomputeGeometry.ts # 统一几何重算管线
+│   │   │   ├── buildingValidation.ts # 结构化校验系统
+│   │   │   ├── buildingStatistics.ts # 统计计算
+│   │   │   ├── buildingGeoJson.ts    # GeoJSON 导出
+│   │   │   ├── spatialGraph.ts       # 空间图导出
+│   │   │   ├── exportUtils.ts        # 统一导出工具
+│   │   │   ├── unitConversion.ts     # 单位转换（集中式）
+│   │   │   ├── cadInput.ts           # 米制输入解析
+│   │   │   ├── cadWall.ts            # 墙几何计算
+│   │   │   ├── faceFunctions.ts      # 房间功能标注
+│   │   │   ├── wallEditing.ts        # 墙尺寸编辑
+│   │   │   ├── recomputeGeometry.ts  # 统一几何重算管线
+│   │   │   ├── schema/               # JSON Schema + AJV 校验
+│   │   │   │   ├── buildingDocument.schema.json
+│   │   │   │   └── validateBuildingDocument.ts
+│   │   │   └── migrations/           # 数据迁移模块
+│   │   │       └── index.ts
 │   │   ├── connectivity/        # 联通关系
-│   │   ├── panels/              # 属性面板
-│   │   │   ├── EditablePropertyPanel.tsx
+│   │   ├── panels/              # 面板
+│   │   │   ├── EditablePropertyPanel.tsx  # 属性面板
 │   │   │   ├── VertexPropertyPanel.tsx
 │   │   │   ├── FaceFunctionPanel.tsx
-│   │   │   └── ConnectivityPanel.tsx
+│   │   │   ├── ConnectivityPanel.tsx
+│   │   │   ├── DataQualityPanel.tsx     # v0.2 数据质量面板
+│   │   │   ├── RoomLabelPanel.tsx       # v0.2 房间标注面板
+│   │   │   └── StatusBar.tsx            # v0.2 状态栏
 │   │   ├── toolbar/             # 工具栏
 │   │   ├── store/               # Zustand 状态管理
 │   │   └── hooks/               # React Hooks
 │   ├── projects/                # 项目首页
-│   │   ├── ProjectHome.tsx      # 项目列表 + 回收站
-│   │   └── NewProjectDialog.tsx # 新建对话框（含墙厚设置）
+│   │   ├── ProjectHome.tsx      # 项目列表 + 回收站（v0.2 丰富卡片）
+│   │   └── NewProjectDialog.tsx # 新建对话框
 │   └── api/                     # 前端 API 客户端
 │       └── projectApi.ts
 ├── tests/
@@ -117,14 +134,11 @@ rural-floor-plan-editor/
 │   ├── components/              # 组件测试
 │   ├── server/                  # 服务端测试
 │   └── e2e/                     # E2E 测试
-│       └── smoke.spec.ts
 ├── data/                        # 项目数据（运行时生成）
-│   ├── <building_id>/           # 各项目目录
-│   └── .trash/                  # 回收站
 └── docs/                        # 设计文档
 ```
 
-## 架构概要
+## 技术架构
 
 ### 数据模型
 
@@ -136,9 +150,21 @@ rural-floor-plan-editor/
                     └── 联通关系 (Relation)：人员/空气/采光
 ```
 
-- 内部存储统一使用**整数毫米**，界面输入使用**米**
+- **唯一领域模型**: `BuildingDocument` (Schema v2.1.0)
+- **内部存储统一使用整数毫米 (mm)**
+- 界面输入使用米 (m)，通过集中式单位转换函数处理
 - 默认墙厚 **240 mm**（创建项目时可自定义）
 - 容差统一为 **1 mm**
+
+### Schema 版本
+
+当前版本：**2.1.0**
+
+| 版本 | 单位 | 说明 |
+|------|------|------|
+| 0.2.0 | cm | 旧 PlanDocument 格式 |
+| 2.0.0 | mm | 初版 BuildingDocument |
+| 2.1.0 | mm | 统一元数据、场地、工作流、统计、结构化校验 |
 
 ### 命令模式
 
@@ -161,34 +187,139 @@ validateWallElementGeometry
 
 墙插入和顶点移动操作均通过此统一管线。
 
+### revision 规则
+
+- 自动保存携带客户端 `revision`，服务端乐观锁校验
+- `revision` 冲突返回 409，前端停止自动保存
+- 完成/重开项目时 `revision` 递增，写入 revision 历史
+
+### 项目工作流
+
+```
+draft → pending_review → reviewed → complete
+  ↑         ↓              ↓           ↓
+  └─────────┴──────────────┴───────────┘ (reopen)
+```
+
+## v0.2 功能
+
+| 类别 | 功能 | 状态 |
+|------|------|------|
+| 数据模型 | 统一 BuildingDocument v2.1.0 | ✓ |
+| 数据模型 | 统一毫米单位 | ✓ |
+| 数据模型 | 结构化校验问题模型 | ✓ |
+| 数据模型 | JSON Schema + AJV 运行时校验 | ✓ |
+| 数据模型 | 旧版数据迁移（PlanDocument → BuildingDocument） | ✓ |
+| 项目管理 | 项目列表丰富卡片（统计、进度、问题数） | ✓ |
+| 项目管理 | 工作流状态（draft/pending_review/reviewed/complete） | ✓ |
+| 项目管理 | revision 乐观锁 | ✓ |
+| 项目管理 | revision 历史查看与恢复 | ✓ |
+| 数据质量 | 分类校验（几何/拓扑/语义/通行/通风/采光/参考） | ✓ |
+| 数据质量 | 数据质量面板（筛选、定位、高亮） | ✓ |
+| 数据质量 | 完成前强制检查 | ✓ |
+| 批量标注 | 乡村住宅房间功能字典（16 种） | ✓ |
+| 批量标注 | 房间标注刷工具 | ✓ |
+| 批量标注 | 多选批量标注 | ✓ |
+| 批量标注 | 快捷键标注（0-9） | ✓ |
+| 批量标注 | Tab/Shift+Tab 跳转未标注房间 | ✓ |
+| 统计显示 | 建筑统计（几何/语义/门窗完成度） | ✓ |
+| 统计显示 | 编辑器状态栏（工具/比例/北向/统计/保存） | ✓ |
+| 导出 | Building JSON 导出 | ✓ |
+| 导出 | 空间图导出（节点+边+关系通道） | ✓ |
+| 导出 | GeoJSON 导出（local_cartesian_mm） | ✓ |
+| 导出 | ZIP 建筑包导出 | ✓ |
+| 参考标定 | 北向设置字段 | ✓ |
+| 参考标定 | 比例标定数据结构 | ✓ |
+
 ## API 端点
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `GET` | `/api/projects` | 列出活跃项目 |
+| `GET` | `/api/projects` | 列出活跃项目（含统计信息） |
 | `GET` | `/api/projects/trash` | 列出回收站项目 |
 | `POST` | `/api/projects` | 创建新项目 |
-| `GET` | `/api/projects/:id` | 打开项目 |
-| `PUT` | `/api/projects/:id/autosave` | 自动保存 |
+| `GET` | `/api/projects/:id` | 打开项目（含自动迁移） |
+| `PUT` | `/api/projects/:id/autosave` | 自动保存（带 revision 锁） |
+| `POST` | `/api/projects/:id/submit-review` | 提交审核 |
+| `POST` | `/api/projects/:id/review` | 审核通过（可选 reviewer） |
+| `POST` | `/api/projects/:id/complete` | 完成项目（强制校验） |
+| `POST` | `/api/projects/:id/reopen` | 重新打开编辑 |
+| `GET` | `/api/projects/:id/revisions` | 列出 revision 历史 |
+| `GET` | `/api/projects/:id/revisions/:rev` | 获取指定 revision |
+| `POST` | `/api/projects/:id/revisions/:rev/restore` | 恢复指定 revision |
 | `DELETE` | `/api/projects/:id` | 移入回收站 |
 | `POST` | `/api/projects/:id/restore` | 从回收站恢复 |
 | `GET` | `/api/projects/:id/export` | 下载建筑包 ZIP |
 | `GET` | `/api/projects/:id/files/*` | 获取项目文件 |
 
-## 功能清单
+## 导出格式
 
-- [x] 点—墙—面拓扑数据模型
-- [x] 交点自动拆分与拓扑归一化
-- [x] 几何吸附（顶点 > 交点 > 墙上投影 > 网格）
-- [x] 半边遍历自动推导面
-- [x] 功能区与院落
-- [x] 开口与联通关系推导（人员/空气/采光）
-- [x] 墙上构件（门、窗、洞口）
-- [x] CAD 式连续画墙（方向约束、数值输入）
-- [x] 顶点拖动与坐标编辑
-- [x] 项目创建时设置默认墙厚
-- [x] 项目软删除与回收站恢复
-- [x] 建筑包 ZIP 导出（JSON + 参考图 + 元数据）
-- [x] 撤销/重做
-- [x] 自动保存
-- [x] 参考草图校准
+### Building JSON
+
+`{building_id}_building_v{revision}.json` — 完整 BuildingDocument v2.1.0
+
+### 空间图
+
+`{building_id}_spatial_graph_v{revision}.json` — 节点（房间/院落）+ 边（门/窗/通道）+ 人员/空气/采光通道
+
+### GeoJSON
+
+`{building_id}_building_v{revision}.geojson` — FeatureCollection，坐标系标注为 `local_cartesian_mm`，不伪造 EPSG
+
+### ZIP 建筑包
+
+`{building_id}.zip` — 包含 building.json + floorplan.png + reference image + metadata.json
+
+## 快捷键
+
+| 快捷键 | 操作 |
+|--------|------|
+| `Ctrl+Z` | 撤销 |
+| `Ctrl+Shift+Z` / `Ctrl+Y` | 重做 |
+| `Space` + 拖拽 | 平移画布 |
+| `1`–`9`, `0` | 房间标注刷：选择功能 |
+| `Tab` | 下一个未标注房间 |
+| `Shift+Tab` | 上一个未标注房间 |
+| `Esc` | 退出标注刷 / 取消绘制 |
+| `Delete` | 删除选中实体 |
+
+## 数据迁移
+
+打开旧版项目时，服务端自动执行迁移：
+
+- 识别 Schema 版本（0.2.0 / 2.0.0）
+- 厘米 → 毫米转换
+- openings → wall_elements 转换
+- spaces → faces 转换
+- 补充缺失字段（metadata, site, workflow）
+- 返回迁移警告
+
+迁移模块位于 `src/editor/domain/migrations/index.ts`，可独立测试。
+
+## 测试命令
+
+```bash
+npm test              # 全部单元测试 (380 tests)
+npm run test:watch    # 监视模式
+npm run test:e2e      # E2E 测试
+npm run lint          # 代码检查
+```
+
+## 已知限制
+
+- 不支持多层建筑（当前仅单层 `floor_1`）
+- 不支持 BIM 三维建模
+- 不支持 AI 自动识别
+- 不支持多人协同
+- GeoJSON 使用局部坐标，非 WGS84
+
+## 后续路线
+
+- v0.3: 湿热模拟参数（材料热工属性、气候数据接入）
+- v0.4: 生成式平面布局实验接口
+- v0.5: EnergyPlus/WUFI 模拟器接入
+- v1.0: 完整科研数据管线
+
+## 签证
+
+本项目是面向乡村住宅矢量化、空间语义标注和科研数据生产的专用平台，不是完整 CAD 软件。
