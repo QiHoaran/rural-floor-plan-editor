@@ -12,6 +12,7 @@ import { createProjectRouter } from './routes/projects.js';
 export async function createApp(config: ServerConfig): Promise<Express> {
   const app = express();
   const projectService = new ProjectService(config.dataRoot);
+  await projectService.ensureDirectories();
 
   app.use(express.json({ limit: '15mb' }));
   app.use('/api/projects', createProjectRouter(projectService));

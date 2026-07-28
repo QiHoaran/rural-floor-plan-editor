@@ -58,6 +58,12 @@ const EXTENSION_BY_MIME: Record<string, string> = {
 export class ProjectService {
   constructor(private readonly dataRoot: string) {}
 
+  /** 确保 data/ 和 data/.trash/ 目录存在，服务启动时调用 */
+  async ensureDirectories(): Promise<void> {
+    await fs.mkdir(this.dataRoot, { recursive: true });
+    await fs.mkdir(path.join(this.dataRoot, '.trash'), { recursive: true });
+  }
+
   async create(input: CreateProjectInput): Promise<BuildingDocument> {
     const buildingId = validateBuildingId(input.buildingId);
     const buildingDir = resolveBuildingDir(this.dataRoot, buildingId);
