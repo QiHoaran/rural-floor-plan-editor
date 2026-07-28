@@ -1,0 +1,187 @@
+/* ============================================================
+   编辑器布局样式
+   ============================================================ */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ---- 顶部栏 ---- */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 40px;
+  padding: 0 12px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+  z-index: 1000;
+}
+
+.title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.projectId {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg);
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+.headerActions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.exportGroup {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.exportOptions {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  min-width: 160px;
+}
+
+.exportOption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.exportOption select {
+  padding: 2px 6px;
+  font-size: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+}
+
+.headerBtn {
+  padding: 4px 12px;
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: 4px;
+  font-size: 12px;
+  transition: background 0.15s;
+}
+
+.headerBtn:hover {
+  background: var(--color-primary-hover);
+}
+
+.headerBtnSecondary {
+  padding: 4px 10px;
+  background: #f1f5f9;
+  color: var(--color-text);
+  border-radius: 4px;
+  font-size: 12px;
+  transition: background 0.15s;
+}
+
+.headerBtnSecondary:hover {
+  background: #e2e8f0;
+}
+
+.saveStatus {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.saved {
+  color: var(--color-success);
+}
+
+.unsaved {
+  color: var(--color-accent);
+}
+
+.saving {
+  color: var(--color-primary);
+}
+
+.error {
+  color: var(--color-error);
+}
+
+/* ---- 主体区域 ---- */
+.body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ---- 地图区域 ---- */
+.mapArea {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.mapContainer {
+  width: 100%;
+  height: 100%;
+}
+
+.loading {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  color: var(--color-text-secondary);
+}
+
+.saveError {
+  max-width: 260px;
+  overflow: hidden;
+  color: var(--color-error);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.propertyPlaceholder {
+  width: var(--panel-width);
+  flex-shrink: 0;
+  padding: 16px;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+}
+
+.propertyTitle {
+  margin: -16px -16px 18px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+  font-weight: 700;
+}

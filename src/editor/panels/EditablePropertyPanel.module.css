@@ -1,0 +1,81 @@
+.panel {
+  width: var(--panel-width);
+  flex-shrink: 0;
+  overflow: auto;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-border);
+  font-weight: 700;
+}
+
+.content {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field span {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  min-height: 34px;
+}
+
+.readOnly {
+  padding: 8px;
+  border-radius: 4px;
+  background: var(--color-bg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.empty {
+  padding: 24px 14px;
+  color: var(--color-text-secondary);
+  line-height: 1.7;
+}
+
+.error {
+  padding: 8px;
+  border-radius: 4px;
+  color: #b91c1c;
+  background: #fef2f2;
+  font-size: 11px;
+}
+
+.success {
+  padding: 8px;
+  border-radius: 4px;
+  color: #15803d;
+  background: #f0fdf4;
+  font-size: 11px;
+}
+
+.dangerBtn {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dangerBtn:hover {
+  background: #fee2e2;
+}

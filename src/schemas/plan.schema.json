@@ -1,0 +1,157 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://rural-floor-plan-editor/schemas/plan.schema.json",
+  "title": "乡村住宅平面图 Plan Document",
+  "description": "乡村住宅平面图人工矢量化与核验编辑器的数据格式",
+  "type": "object",
+  "required": ["schema_version", "plan_id", "vertices", "walls"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema 版本号",
+      "enum": ["0.2.0"]
+    },
+    "plan_id": {
+      "type": "string",
+      "description": "户型唯一标识",
+      "pattern": "^house_\\d+$"
+    },
+    "image": {
+      "type": "object",
+      "properties": {
+        "file_name": { "type": "string" },
+        "width_px": { "type": "integer", "minimum": 0 },
+        "height_px": { "type": "integer", "minimum": 0 },
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "rotation_deg": { "type": "integer" },
+        "flip_horizontal": { "type": "boolean" },
+        "flip_vertical": { "type": "boolean" }
+      }
+    },
+    "coordinate_system": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "local_cartesian" },
+        "unit": { "const": "cm" },
+        "origin": { "const": "bottom_left" },
+        "y_axis": { "const": "up" },
+        "storage_precision_cm": { "const": 1 },
+        "meters_per_pixel": { "type": ["number", "null"] },
+        "north_angle_deg": { "type": ["number", "null"] }
+      }
+    },
+    "grid": {
+      "type": "object",
+      "properties": {
+        "major_step_cm": { "type": "integer" },
+        "minor_step_cm": { "type": "integer" },
+        "visible": { "type": "boolean" },
+        "snap_enabled": { "type": "boolean" },
+        "default_snap_mode": { "type": "string", "enum": ["major", "minor", "fine", "none"] }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "properties": {
+        "wall_thickness_cm": { "type": "integer" },
+        "exterior_wall_thickness_cm": { "type": "integer" },
+        "interior_wall_thickness_cm": { "type": "integer" },
+        "wall_height_cm": { "type": "integer" },
+        "door_width_cm": { "type": "integer" },
+        "window_width_cm": { "type": "integer" }
+      }
+    },
+    "vertices": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["x_cm", "y_cm"],
+        "properties": {
+          "x_cm": { "type": "number" },
+          "y_cm": { "type": "number" }
+        }
+      }
+    },
+    "walls": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["start_vertex_id", "end_vertex_id"],
+        "properties": {
+          "start_vertex_id": { "type": "string" },
+          "end_vertex_id": { "type": "string" },
+          "wall_type": { "type": "string", "enum": ["exterior", "interior", "partition", "unknown"] },
+          "thickness_cm": { "type": "integer" },
+          "height_cm": { "type": "integer" },
+          "material_type": { "type": "string" },
+          "review_status": { "type": "string", "enum": ["draft", "reviewed", "approved", "rejected"] }
+        }
+      }
+    },
+    "openings": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "opening_type": { "type": "string", "enum": ["door", "window", "entrance_door"] },
+          "host_wall_id": { "type": "string" },
+          "offset_from_start_cm": { "type": "number" },
+          "width_cm": { "type": "number" },
+          "height_cm": { "type": "number" },
+          "sill_height_cm": { "type": "number" },
+          "review_status": { "type": "string", "enum": ["draft", "reviewed", "approved", "rejected"] }
+        }
+      }
+    },
+    "spaces": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "room_type": { "type": "string" },
+          "local_name": { "type": "string" },
+          "generated_polygon": { "type": "array", "items": { "type": "array" } },
+          "source": { "type": "string", "enum": ["derived_from_walls", "manual"] },
+          "review_status": { "type": "string" },
+          "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+          "heated": { "type": "boolean" }
+        }
+      }
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string" },
+          "from_space_id": { "type": "string" },
+          "to_space_id": { "type": "string" }
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "properties": {
+        "errors": { "type": "array" },
+        "warnings": { "type": "array" },
+        "infos": { "type": "array" }
+      }
+    },
+    "review": {
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["draft", "reviewed", "approved", "rejected"] },
+        "reviewer": { "type": ["string", "null"] },
+        "reviewed_at": { "type": ["string", "null"] }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "created_at": { "type": ["string", "null"] },
+        "updated_at": { "type": ["string", "null"] },
+        "revision": { "type": "integer" }
+      }
+    }
+  }
+}

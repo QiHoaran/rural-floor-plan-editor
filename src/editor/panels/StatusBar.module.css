@@ -1,0 +1,39 @@
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--statusbar-height);
+  padding: 0 8px;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  overflow: hidden;
+}
+
+.item {
+  white-space: nowrap;
+  padding: 0 4px;
+}
+
+.sep {
+  width: 1px;
+  height: 12px;
+  background: var(--color-border);
+}
+
+.right {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+
+.error {
+  color: var(--color-error);
+}
+
+.warning {
+  color: var(--color-accent);
+}
