@@ -35,11 +35,34 @@ describe('ConnectivityPanel', () => {
     render(<ConnectivityPanel elementId="element" />);
     expect(screen.getByText('exterior_window')).toBeTruthy();
     expect(screen.getByText(/air.*light/i)).toBeTruthy();
-    const width = screen.getByLabelText('Width (m)');
+    const width = screen.getByLabelText('尺寸 (m)');
     fireEvent.change(width, { target: { value: '1.4' } });
     fireEvent.blur(width);
     expect(useEditorStore.getState().buildingDocument!.wall_elements.element.width_mm)
       .toBe(1400);
+  });
+
+  it('commits a preset size button to width_mm', () => {
+    render(<ConnectivityPanel elementId="element" />);
+    const preset = screen.getByRole('button', { name: '1' });
+    fireEvent.click(preset);
+    expect(useEditorStore.getState().buildingDocument!.wall_elements.element.width_mm)
+      .toBe(1000);
+    expect((screen.getByLabelText('尺寸 (m)') as HTMLInputElement).value).toBe('1');
+  });
+
+  it('marks the currently selected size preset as active', () => {
+    render(<ConnectivityPanel elementId="element" />);
+    // 初始宽度 1200mm 不在预设列表内，无按钮高亮
+    expect(screen.getByRole('button', { name: '1.3' }).getAttribute('aria-pressed'))
+      .toBe('false');
+    fireEvent.click(screen.getByRole('button', { name: '1.3' }));
+    expect(useEditorStore.getState().buildingDocument!.wall_elements.element.width_mm)
+      .toBe(1300);
+    expect(screen.getByRole('button', { name: '1.3' }).getAttribute('aria-pressed'))
+      .toBe('true');
+    expect(screen.getByRole('button', { name: '1' }).getAttribute('aria-pressed'))
+      .toBe('false');
   });
 
   it('does not commit an out-of-bounds edit', () => {
@@ -55,13 +78,13 @@ describe('ConnectivityPanel', () => {
 
   it('does not create history for an unchanged blur', () => {
     render(<ConnectivityPanel elementId="element" />);
-    fireEvent.blur(screen.getByLabelText('Width (m)'));
+    fireEvent.blur(screen.getByLabelText('尺寸 (m)'));
     expect(useEditorStore.getState().undoStack).toHaveLength(0);
   });
 
   it('commits Enter plus blur exactly once', () => {
     render(<ConnectivityPanel elementId="element" />);
-    const width = screen.getByLabelText('Width (m)');
+    const width = screen.getByLabelText('尺寸 (m)');
     fireEvent.change(width, { target: { value: '1.4' } });
     fireEvent.keyDown(width, { key: 'Enter' });
     fireEvent.blur(width);
@@ -72,20 +95,20 @@ describe('ConnectivityPanel', () => {
 
   it('synchronizes inputs after undo and redo without recommitting on blur', () => {
     render(<ConnectivityPanel elementId="element" />);
-    const width = screen.getByLabelText('Width (m)');
+    const width = screen.getByLabelText('尺寸 (m)');
     fireEvent.change(width, { target: { value: '1.4' } });
     fireEvent.blur(width);
     expect(useEditorStore.getState().undoStack).toHaveLength(1);
 
     act(() => useEditorStore.getState().undo());
-    expect((screen.getByLabelText('Width (m)') as HTMLInputElement).value).toBe('1.2');
-    fireEvent.blur(screen.getByLabelText('Width (m)'));
+    expect((screen.getByLabelText('尺寸 (m)') as HTMLInputElement).value).toBe('1.2');
+    fireEvent.blur(screen.getByLabelText('尺寸 (m)'));
     expect(useEditorStore.getState().undoStack).toHaveLength(0);
 
     act(() => useEditorStore.getState().redo());
-    expect((screen.getByLabelText('Width (m)') as HTMLInputElement).value).toBe('1.4');
+    expect((screen.getByLabelText('尺寸 (m)') as HTMLInputElement).value).toBe('1.4');
     const historyAfterRedo = useEditorStore.getState().undoStack.length;
-    fireEvent.blur(screen.getByLabelText('Width (m)'));
+    fireEvent.blur(screen.getByLabelText('尺寸 (m)'));
     expect(useEditorStore.getState().undoStack).toHaveLength(historyAfterRedo);
   });
 
@@ -97,8 +120,8 @@ describe('ConnectivityPanel', () => {
       width_mm: 800,
     };
     const { rerender } = render(<ConnectivityPanel elementId="element" />);
-    fireEvent.change(screen.getByLabelText('Width (m)'), { target: { value: '1.7' } });
+    fireEvent.change(screen.getByLabelText('尺寸 (m)'), { target: { value: '1.7' } });
     rerender(<ConnectivityPanel elementId="second" />);
-    expect((screen.getByLabelText('Width (m)') as HTMLInputElement).value).toBe('0.8');
+    expect((screen.getByLabelText('尺寸 (m)') as HTMLInputElement).value).toBe('0.8');
   });
 });

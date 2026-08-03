@@ -2,6 +2,10 @@ import type {
   BuildingDocument,
   BuildingVertex,
 } from '../src/editor/domain/buildingTypes.js';
+import {
+  exteriorSideSign,
+  wallElementRect,
+} from '../src/editor/domain/wallElementGeometry.js';
 
 export interface RenderSvgOptions {
   pixelsPerMm: number;
@@ -120,6 +124,9 @@ const ELEMENT_COLORS: Record<string, string> = {
   passage: '#9333ea',
 };
 
+/** 内门两端深色竖线（|==|）的颜色 */
+const DOOR_MARK_COLOR = '#0f172a';
+
 // ============================================================
 // 主渲染函数
 // ============================================================
@@ -201,7 +208,7 @@ export function renderBuildingSvg(
 
   // ---- 墙上构件 ----
   const elementShapes: string[] = [];
-  for (const element of Object.values(document.wall_elements)) {
+  for (const [elementId, element] of Object.entries(document.wall_elements)) {
     const wall = document.walls[element.host_wall_id];
     if (!wall) continue;
     const start = document.vertices[wall.start_vertex_id];
@@ -211,48 +218,52 @@ export function renderBuildingSvg(
     const dy = end.y_mm - start.y_mm;
     const wLength = Math.hypot(dx, dy);
     if (wLength === 0) continue;
-    const ux = dx / wLength;        // 墙方向单位向量
-    const uy = dy / wLength;
-    const nx = -uy;                  // 墙法线方向
-    const ny = ux;
+    const rect = wallElementRect(
+      start,
+      end,
+      element.offset_from_start_mm,
+      element.width_mm,
+      wall.thickness_mm,
+    );
+    const { corners, ux, uy, nx, ny, halfDepth } = rect;
+    const fill = ELEMENT_COLORS[element.element_type] ?? '#000000';
 
-    const centerOffset =
-      element.offset_from_start_mm + element.width_mm / 2;
-    const cx = start.x_mm + ux * centerOffset;
-    const cy = start.y_mm + uy * centerOffset;
-    const halfW = element.width_mm / 2;
-
-    // 矩形四角：沿墙方向 ±halfW，垂直方向 ± 墙厚的一半（最短 80mm 保证可见）
-    const halfD = Math.max(wall.thickness_mm, 80) / 2;
-    const corners = [
-      { x_mm: cx - ux * halfW - nx * halfD, y_mm: cy - uy * halfW - ny * halfD },
-      { x_mm: cx + ux * halfW - nx * halfD, y_mm: cy + uy * halfW - ny * halfD },
-      { x_mm: cx + ux * halfW + nx * halfD, y_mm: cy + uy * halfW + ny * halfD },
-      { x_mm: cx - ux * halfW + nx * halfD, y_mm: cy - uy * halfW + ny * halfD },
-    ];
+    // 外窗 / 无门洞 / 内门 / 外门：实心矩形（垂直方向与墙宽一致）
     const ptsStr = corners
       .map((p) => `${p.x_mm},${y(p.y_mm)}`)
       .join(' ');
-    const fill = ELEMENT_COLORS[element.element_type] ?? '#000000';
-    const opacity =
-      element.element_type === 'passage' ? '0.6' : '0.85';
-
+    const opacity = element.element_type === 'passage' ? '0.9' : '0.85';
     elementShapes.push(
       `<polygon points="${ptsStr}" fill="${fill}" fill-opacity="${opacity}" stroke="none"/>`,
     );
 
-    // 内门/外门：加一条垂直短线表示开门方向
-    if (
-      element.element_type === 'interior_door' ||
-      element.element_type === 'exterior_door'
-    ) {
-      const swingLen = element.width_mm * 0.6;
-      const sx = cx - nx * halfD;
-      const sy = cy - ny * halfD;
-      const ex = sx - nx * swingLen;
-      const ey = sy - ny * swingLen;
+    // 内门：两端深色竖线（|==|），与外窗/无门洞区分
+    if (element.element_type === 'interior_door') {
+      const markWidth = Math.max(16, halfDepth * 0.2);
+      const sx = start.x_mm + ux * element.offset_from_start_mm;
+      const sy = start.y_mm + uy * element.offset_from_start_mm;
+      const ex = sx + ux * element.width_mm;
+      const ey = sy + uy * element.width_mm;
       elementShapes.push(
-        `<line x1="${sx}" y1="${y(sy)}" x2="${ex}" y2="${y(ey)}" stroke="${fill}" stroke-width="${Math.max(20, halfD * 0.3).toFixed(0)}" stroke-linecap="round"/>`,
+        `<line x1="${sx - nx * halfDepth}" y1="${y(sy - ny * halfDepth)}" x2="${sx + nx * halfDepth}" y2="${y(sy + ny * halfDepth)}" stroke="${DOOR_MARK_COLOR}" stroke-width="${markWidth.toFixed(0)}"/>`,
+        `<line x1="${ex - nx * halfDepth}" y1="${y(ey - ny * halfDepth)}" x2="${ex + nx * halfDepth}" y2="${y(ey + ny * halfDepth)}" stroke="${DOOR_MARK_COLOR}" stroke-width="${markWidth.toFixed(0)}"/>`,
+      );
+    }
+
+    // 外门：向外侧开启的门弧
+    if (element.element_type === 'exterior_door') {
+      const swingSign = exteriorSideSign(document, elementId) ?? 1;
+      const snx = nx * swingSign;
+      const sny = ny * swingSign;
+      const x1 = start.x_mm + ux * element.offset_from_start_mm;
+      const y1 = start.y_mm + uy * element.offset_from_start_mm;
+      const w = element.width_mm;
+      const arc =
+        `M ${x1 + snx * halfDepth} ${y(y1 + sny * halfDepth)} ` +
+        `Q ${x1 + snx * (halfDepth + w * 0.7) + ux * w * 0.3} ${y(y1 + sny * (halfDepth + w * 0.7) + uy * w * 0.3)} ` +
+        `${x1 + snx * (halfDepth + w)} ${y(y1 + sny * (halfDepth + w))}`;
+      elementShapes.push(
+        `<path d="${arc}" stroke="${fill}" stroke-width="${Math.max(20, halfDepth * 0.3).toFixed(0)}" fill="none" stroke-linecap="round"/>`,
       );
     }
   }

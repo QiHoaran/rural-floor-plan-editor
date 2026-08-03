@@ -56,13 +56,16 @@ export const DEFAULT_WINDOW_HEIGHT_CM = 150;
 export const DEFAULT_SILL_HEIGHT_CM = 90;
 
 // ---- 门窗（mm，BuildingDocument 使用） ----
-export const DEFAULT_DOOR_WIDTH_MM = 900;
-export const DEFAULT_WINDOW_WIDTH_MM = 1200;
+export const DEFAULT_DOOR_WIDTH_MM = 1000;
+export const DEFAULT_WINDOW_WIDTH_MM = 1300;
 export const DEFAULT_DOOR_HEIGHT_MM = 2100;
 export const DEFAULT_WINDOW_HEIGHT_MM = 1500;
 export const DEFAULT_SILL_HEIGHT_MM = 900;
 export const DEFAULT_PASSAGE_WIDTH_MM = 1000;
 export const DEFAULT_PASSAGE_HEIGHT_MM = 2100;
+
+/** 构件「尺寸」预设（沿墙方向开口宽度，单位 mm；对应 0.5/1/1.3/1.7/2 m） */
+export const WALL_ELEMENT_SIZE_PRESETS_MM = [500, 1000, 1300, 1700, 2000] as const;
 
 // ---- 默认值集合（PlanDocument 兼容） ----
 export const DEFAULT_PLAN_DEFAULTS: PlanDefaults = {

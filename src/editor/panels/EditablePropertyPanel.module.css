@@ -34,6 +34,35 @@
   min-height: 34px;
 }
 
+.sizePresets {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sizePresets button {
+  flex: 1 1 auto;
+  min-width: 40px;
+  min-height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sizePresets button:hover {
+  border-color: var(--color-primary);
+}
+
+.sizePresets button[aria-pressed='true'] {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #ffffff;
+}
+
 .readOnly {
   padding: 8px;
   border-radius: 4px;

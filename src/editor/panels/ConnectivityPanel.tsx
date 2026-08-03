@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useEditorStore } from '@/editor/store/editorStore.ts';
 import { updateWallElement } from '@/editor/commands/wallElementCommand.ts';
+import { WALL_ELEMENT_SIZE_PRESETS_MM } from '@/editor/domain/constants.ts';
 import styles from './EditablePropertyPanel.module.css';
 
 export function ConnectivityPanel({ elementId }: { elementId: string }) {
@@ -46,8 +47,13 @@ export function ConnectivityPanel({ elementId }: { elementId: string }) {
     element.sill_height_mm,
   ]);
 
-  const commit = (property: keyof typeof values, label: string) => {
-    const millimeters = Math.round(Number(values[property]) * 1000);
+  const commit = (
+    property: keyof typeof values,
+    label: string,
+    explicitMillimeters?: number,
+  ) => {
+    const millimeters =
+      explicitMillimeters ?? Math.round(Number(values[property]) * 1000);
     focusedProperty.current = null;
     const currentDocument = useEditorStore.getState().buildingDocument;
     const currentElement = currentDocument?.wall_elements[elementId];
@@ -73,7 +79,6 @@ export function ConnectivityPanel({ elementId }: { elementId: string }) {
   };
   const fields = [
     ['offset_from_start_mm', 'Offset (m)'],
-    ['width_mm', 'Width (m)'],
     ['height_mm', 'Height (m)'],
     ['sill_height_mm', 'Sill (m)'],
   ] as const;
@@ -84,6 +89,29 @@ export function ConnectivityPanel({ elementId }: { elementId: string }) {
       <div>{element.element_type}</div>
       <div>Host: {element.host_wall_id}</div>
       <div>Status: {element.status}</div>
+      <div className={styles.field}>
+        <span>尺寸 (m)</span>
+        <div className={styles.sizePresets} role="group" aria-label="尺寸预设">
+          {WALL_ELEMENT_SIZE_PRESETS_MM.map((millimeters) => {
+            const meters = millimeters / 1000;
+            const active = millimeters === element.width_mm;
+            return <button
+              key={millimeters}
+              type="button"
+              className={active ? styles.sizePresetActive : undefined}
+              aria-pressed={active}
+              onClick={() => commit('width_mm', 'Size', millimeters)}
+            >{meters}</button>;
+          })}
+        </div>
+        <input aria-label="尺寸 (m)" inputMode="decimal" value={values.width_mm}
+          onFocus={() => { focusedProperty.current = 'width_mm'; }}
+          onChange={(event) => setValues((current) => ({ ...current, width_mm: event.target.value }))}
+          onBlur={() => commit('width_mm', 'Size')}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur();
+          }} />
+      </div>
       {fields.map(([property, label]) => <label className={styles.field} key={property}>
         <span>{label}</span>
         <input aria-label={label} inputMode="decimal" value={values[property]}

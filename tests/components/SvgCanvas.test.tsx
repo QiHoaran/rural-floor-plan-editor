@@ -821,8 +821,8 @@ describe('SvgCanvas', () => {
       expect.objectContaining({
         element_type: 'exterior_window',
         host_wall_id: 'w_1',
-        offset_from_start_mm: 900,
-        width_mm: 1200,
+        offset_from_start_mm: 850,
+        width_mm: 1300,
       }),
     );
     expect(useEditorStore.getState().undoStack).toHaveLength(1);

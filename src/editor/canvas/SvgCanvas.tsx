@@ -40,7 +40,10 @@ import {
 import { FaceLayer } from './layers/FaceLayer.tsx';
 import { WallElementLayer } from './layers/WallElementLayer.tsx';
 import { VertexLayer } from './layers/VertexLayer.tsx';
-import { placeWallElement } from '@/editor/commands/wallElementCommand.ts';
+import {
+  placeWallElement,
+  updateWallElement,
+} from '@/editor/commands/wallElementCommand.ts';
 import { moveVertex } from '@/editor/commands/pointMoveCommand.ts';
 import { deleteEntity } from '@/editor/commands/deleteEntityCommand.ts';
 import type { WallElementType } from '@/editor/domain/buildingTypes.ts';
@@ -766,6 +769,21 @@ export function SvgCanvas() {
                 setSelection({ type: 'wall_element', id: elementId });
               }
             }}
+            worldPointFromEvent={(event) => eventWorldPoint(event.nativeEvent)}
+            onCommitElementOffset={(elementId, offsetFromStartMm) => {
+              if (tool !== 'select') return;
+              const currentDocument = useEditorStore.getState().buildingDocument;
+              if (!currentDocument) return;
+              const result = updateWallElement(currentDocument, elementId, {
+                offset_from_start_mm: offsetFromStartMm,
+              });
+              if (!result.ok) {
+                setCommandError(result.message);
+                return;
+              }
+              transact(`Move wall element ${elementId}`, () => result.document);
+              setCommandError(null);
+            }}
           />
           <VertexLayer
             document={document}
@@ -842,9 +860,9 @@ const WALL_ELEMENT_DEFAULTS: Record<
   WallElementType,
   { width_mm: number; height_mm: number; sill_height_mm: number }
 > = {
-  exterior_door: { width_mm: 900, height_mm: 2100, sill_height_mm: 0 },
-  exterior_window: { width_mm: 1200, height_mm: 1200, sill_height_mm: 900 },
-  interior_door: { width_mm: 900, height_mm: 2100, sill_height_mm: 0 },
+  exterior_door: { width_mm: 1000, height_mm: 2100, sill_height_mm: 0 },
+  exterior_window: { width_mm: 1300, height_mm: 1200, sill_height_mm: 900 },
+  interior_door: { width_mm: 1000, height_mm: 2100, sill_height_mm: 0 },
   passage: { width_mm: 1000, height_mm: 2100, sill_height_mm: 0 },
 };
 
