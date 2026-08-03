@@ -109,14 +109,10 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
                 className={styles.projectCardMain}
                 onClick={() => onOpen(project.building_id)}
               >
-                {/* 项目名称和编号 */}
-                <div className={styles.cardHeader}>
+                {/* 名称 + 状态 + 日期 */}
+                <div className={styles.cardTop}>
                   <strong>{project.building_id}</strong>
                   <span className={styles.cardName}>{project.name}</span>
-                </div>
-
-                {/* 状态和日期 */}
-                <div className={styles.cardMeta}>
                   <span
                     className={`${styles.statusBadge} ${styles[project.status]}`}
                   >
@@ -127,23 +123,39 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
                   </time>
                 </div>
 
-                {/* 统计信息 */}
+                {/* 统计 + 数据质量 */}
                 <div className={styles.cardStats}>
-                  <div className={styles.statRow}>
+                  <div className={styles.statItem}>
                     <span>房间</span>
-                    <span>{project.room_count}</span>
+                    <b>{project.room_count}</b>
                   </div>
-                  <div className={styles.statRow}>
+                  <div className={styles.statItem}>
                     <span>面积</span>
-                    <span>{(project.total_floor_area_m2 ?? 0).toFixed(1)} m²</span>
+                    <b>{(project.total_floor_area_m2 ?? 0).toFixed(1)} m²</b>
                   </div>
-                  <div className={styles.statRow}>
+                  <div className={styles.statItem}>
                     <span>标注</span>
-                    <span>{project.room_semantic_progress}%</span>
+                    <b>{project.room_semantic_progress}%</b>
+                  </div>
+                  <div className={styles.issueSummary}>
+                    {project.validation_error_count > 0 && (
+                      <span className={styles.errorCount}>
+                        ✕ {project.validation_error_count} 错误
+                      </span>
+                    )}
+                    {project.validation_warning_count > 0 && (
+                      <span className={styles.warningCount}>
+                        ⚠ {project.validation_warning_count} 警告
+                      </span>
+                    )}
+                    {project.validation_error_count === 0 &&
+                      project.validation_warning_count === 0 && (
+                        <span className={styles.cleanBadge}>✓ 无问题</span>
+                      )}
                   </div>
                 </div>
 
-                {/* 进度条 */}
+                {/* 进度条（一行横排） */}
                 <div className={styles.progressBars}>
                   <div className={styles.progressItem}>
                     <span className={styles.progressLabel}>几何</span>
@@ -179,24 +191,6 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
                     </div>
                   </div>
                 </div>
-
-                {/* 问题统计 */}
-                <div className={styles.issueSummary}>
-                  {project.validation_error_count > 0 && (
-                    <span className={styles.errorCount}>
-                      ✕ {project.validation_error_count} 错误
-                    </span>
-                  )}
-                  {project.validation_warning_count > 0 && (
-                    <span className={styles.warningCount}>
-                      ⚠ {project.validation_warning_count} 警告
-                    </span>
-                  )}
-                  {project.validation_error_count === 0 &&
-                    project.validation_warning_count === 0 && (
-                      <span className={styles.cleanBadge}>✓ 无问题</span>
-                    )}
-                </div>
               </button>
               <button
                 className={styles.deleteBtn}
@@ -218,11 +212,13 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
             {trashed.map((project) => (
               <div key={project.building_id} className={styles.projectCard}>
                 <div className={styles.projectCardMain}>
-                  <strong>{project.building_id}</strong>
-                  <span className={styles.trashedLabel}>已删除</span>
-                  <time>
-                    {new Date(project.updated_at).toLocaleString()}
-                  </time>
+                  <div className={styles.cardTop}>
+                    <strong>{project.building_id}</strong>
+                    <span className={styles.trashedLabel}>已删除</span>
+                    <time>
+                      {new Date(project.updated_at).toLocaleString()}
+                    </time>
+                  </div>
                 </div>
                 <button
                   className={styles.restoreBtn}

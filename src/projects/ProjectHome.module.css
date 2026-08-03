@@ -46,8 +46,8 @@
 
 .projectGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 12px;
 }
 
 .projectCard {
@@ -69,8 +69,8 @@
 .projectCardMain {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px;
+  gap: 8px;
+  padding: 12px 16px;
   flex: 1;
   border: none;
   background: none;
@@ -80,34 +80,35 @@
   color: inherit;
 }
 
-/* ---- Card Header ---- */
-.cardHeader {
+/* ---- Card Top Row ---- */
+.cardTop {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
-.cardHeader strong {
+.cardTop strong {
   font-family: monospace;
-  font-size: 15px;
+  font-size: 14px;
+  flex-shrink: 0;
 }
 
 .cardName {
   color: #64748b;
   font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
-/* ---- Meta ---- */
-.cardMeta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.cardMeta time {
+.cardTop time {
   color: #94a3b8;
   font-size: 11px;
   margin-left: auto;
+  flex-shrink: 0;
 }
 
 .statusBadge {
@@ -141,21 +142,23 @@
 /* ---- Stats ---- */
 .cardStats {
   display: flex;
+  align-items: baseline;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
-.statRow {
+.statItem {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  font-size: 11px;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 12px;
 }
 
-.statRow span:first-child {
+.statItem span {
   color: #94a3b8;
 }
 
-.statRow span:last-child {
+.statItem b {
   font-weight: 600;
   color: #1e293b;
 }
@@ -163,25 +166,27 @@
 /* ---- Progress Bars ---- */
 .progressBars {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 14px;
 }
 
 .progressItem {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
 }
 
 .progressLabel {
   font-size: 10px;
   color: #94a3b8;
-  width: 28px;
   flex-shrink: 0;
 }
 
 .progressTrack {
   flex: 1;
+  min-width: 0;
   height: 4px;
   background: #e2e8f0;
   border-radius: 2px;
@@ -200,6 +205,7 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  margin-left: auto;
 }
 
 .errorCount {
