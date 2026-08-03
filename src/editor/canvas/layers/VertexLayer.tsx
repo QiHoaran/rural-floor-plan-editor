@@ -18,40 +18,29 @@ interface VertexLayerProps {
 
 /**
  * 顶点大小计算策略：
- * - 基准：顶点直径 = 墙体宽度（radius = wallThicknessMm / 2），
- *   使得顶点在正常缩放级别下刚好填满墙体接头
- * - 缩小时放大：当画布缩小时，保证最小屏幕像素尺寸，方便点选
- * - 放大时缩小：当画布放大时，限制最大屏幕像素尺寸，避免遮挡几何
+ * - 放大画布时：直径始终等于墙体宽度（radius = wallThicknessMm / 2），
+ *   顶点刚好填满墙体接头，与墙体宽度保持一致
+ * - 缩小画布时：半径不小于最小屏幕像素半径，点稍微变大、仍清晰可见
  */
 
 /** 顶点在屏幕上的最小半径（px），保证缩小画布时仍可点选 */
 const MIN_SCREEN_RADIUS_PX = 8;
-/** 顶点在屏幕上的最大半径（px），避免放大画布时遮挡过多 */
-const MAX_SCREEN_RADIUS_PX = 22;
 /** 命中区域额外扩展（px），在视觉半径基础上增加 */
 const HIT_PADDING_PX = 8;
 
 /**
  * 基于墙体宽度的自适应顶点半径。
- * 基准直径为墙体宽度，屏幕像素尺寸约束在 [minScreenPx, maxScreenPx] 范围内。
+ * 放大时直径等于墙体宽度，缩小时保持最小屏幕像素尺寸。
  */
 function adaptiveRadius(
   wallThicknessMm: number,
   pixelsPerMm: number,
   minScreenPx: number,
-  maxScreenPx: number,
 ): number {
   // 基准：半径 = 墙体半宽（直径 = 墙体全宽）
   const baseRadiusMm = wallThicknessMm / 2;
-  // 基准屏幕像素尺寸
-  const rawScreenPx = baseRadiusMm * pixelsPerMm;
-  // 钳制屏幕像素
-  const clampedScreenPx = Math.max(
-    minScreenPx,
-    Math.min(maxScreenPx, rawScreenPx),
-  );
-  // 转回世界坐标 mm
-  return clampedScreenPx / pixelsPerMm;
+  // 缩小时提升到最小屏幕半径，放大时保持基准尺寸不变
+  return Math.max(baseRadiusMm, minScreenPx / pixelsPerMm);
 }
 
 export function VertexLayer({
@@ -69,14 +58,9 @@ export function VertexLayer({
     wallThicknessMm,
     pixelsPerMm,
     MIN_SCREEN_RADIUS_PX,
-    MAX_SCREEN_RADIUS_PX,
   );
-  const hitRadius = adaptiveRadius(
-    wallThicknessMm,
-    pixelsPerMm,
-    MIN_SCREEN_RADIUS_PX + HIT_PADDING_PX,
-    MAX_SCREEN_RADIUS_PX + HIT_PADDING_PX,
-  );
+  // 命中区域 = 视觉半径 + 固定屏幕像素扩展，保证点选手感
+  const hitRadius = radius + HIT_PADDING_PX / pixelsPerMm;
   return (
     <g aria-label="顶点图层">
       {Object.entries(document.vertices).map(([vertexId, vertex]) => {
