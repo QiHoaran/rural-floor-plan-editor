@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { EditablePropertyPanel } from '../../src/editor/panels/EditablePropertyPanel.tsx';
 import { createEmptyBuilding } from '../../src/editor/domain/buildingDocument.ts';
@@ -85,6 +85,75 @@ describe('EditablePropertyPanel', () => {
     const document = useEditorStore.getState().buildingDocument!;
     expect(document.reference_image.opacity).toBe(0.3);
     expect(document.vertices).toEqual(before);
+  });
+
+  it('reflects drag-driven transform changes in the reference inputs', () => {
+    useEditorStore.getState().setTool('adjust_reference');
+    render(<EditablePropertyPanel />);
+    const scale = screen.getByLabelText('参考图缩放');
+    expect((scale as HTMLInputElement).value).toBe('1');
+
+    // 模拟画布拖拽提交的缩放事务
+    act(() =>
+      useEditorStore.getState().transact('缩放参考图', (document) => ({
+        ...document,
+        reference_image: {
+          ...document.reference_image,
+          transform: {
+            ...document.reference_image.transform,
+            scale: 5.5,
+          },
+        },
+      })),
+    );
+
+    expect((scale as HTMLInputElement).value).toBe('5.5');
+    expect(
+      (
+        screen.getByLabelText('参考图水平位置') as HTMLInputElement
+      ).value,
+    ).toBe('0');
+  });
+
+  it('does not reset the scale when an untouched input is blurred after external changes', () => {
+    useEditorStore.getState().setTool('adjust_reference');
+    render(<EditablePropertyPanel />);
+    act(() =>
+      useEditorStore.getState().transact('缩放参考图', (document) => ({
+        ...document,
+        reference_image: {
+          ...document.reference_image,
+          transform: {
+            ...document.reference_image.transform,
+            scale: 5.5,
+          },
+        },
+      })),
+    );
+    const scale = screen.getByLabelText('参考图缩放');
+
+    fireEvent.focus(scale);
+    fireEvent.blur(scale);
+
+    expect(
+      useEditorStore.getState().buildingDocument!.reference_image.transform
+        .scale,
+    ).toBe(5.5);
+  });
+
+  it('still commits an edited scale through the input', () => {
+    useEditorStore.getState().setTool('adjust_reference');
+    render(<EditablePropertyPanel />);
+    const scale = screen.getByLabelText('参考图缩放');
+
+    fireEvent.change(scale, { target: { value: '2.5' } });
+    fireEvent.blur(scale);
+
+    expect(
+      useEditorStore.getState().buildingDocument!.reference_image.transform
+        .scale,
+    ).toBe(2.5);
+    expect((scale as HTMLInputElement).value).toBe('2.5');
   });
 
   it('shows the face function panel for a selected face', () => {

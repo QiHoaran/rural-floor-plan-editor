@@ -18,7 +18,12 @@ import type {
   BuildingVertex,
   ReferenceImage,
 } from '@/editor/domain/buildingTypes.ts';
-import { translateReference } from '@/editor/reference-image/referenceTransform.ts';
+import {
+  referenceLocalToWorld,
+  scaleReferenceAround,
+  translateReference,
+  type ReferencePoint,
+} from '@/editor/reference-image/referenceTransform.ts';
 import {
   panBy,
   screenToWorld,
@@ -28,7 +33,10 @@ import {
 import { useEditorStore } from '@/editor/store/editorStore.ts';
 import { WallLayer } from './layers/WallLayer.tsx';
 import { OverlayLayer } from './layers/OverlayLayer.tsx';
-import { ReferenceImageLayer } from './layers/ReferenceImageLayer.tsx';
+import {
+  ReferenceImageLayer,
+  type ReferenceCorner,
+} from './layers/ReferenceImageLayer.tsx';
 import { FaceLayer } from './layers/FaceLayer.tsx';
 import { WallElementLayer } from './layers/WallElementLayer.tsx';
 import { VertexLayer } from './layers/VertexLayer.tsx';
@@ -66,12 +74,7 @@ export function SvgCanvas() {
   const spacePressed = useRef(false);
   const altPressed = useRef(false);
   const expectedInternalDocument = useRef<BuildingDocument | null>(null);
-  const referenceDrag = useRef<{
-    pointerId: number;
-    start: BuildingVertex;
-    latest: BuildingVertex;
-    original: ReferenceImage;
-  } | null>(null);
+  const referenceDrag = useRef<ReferenceDragState | null>(null);
   const vertexDrag = useRef<{
     pointerId: number;
     vertexId: string;
@@ -432,6 +435,40 @@ export function SvgCanvas() {
     if (svg) svg.setPointerCapture(pointerId);
   };
 
+  const handleStartReferenceScale = (
+    corner: ReferenceCorner,
+    pointerId: number,
+    event: ReactPointerEvent<SVGRectElement>,
+  ) => {
+    const image = document.reference_image;
+    const width = image.width_px;
+    const height = image.height_px;
+    const anchors: Record<ReferenceCorner, ReferencePoint> = {
+      tl: { x: width, y: height },
+      tr: { x: 0, y: height },
+      bl: { x: width, y: 0 },
+      br: { x: 0, y: 0 },
+    };
+    const corners: Record<ReferenceCorner, ReferencePoint> = {
+      tl: { x: 0, y: 0 },
+      tr: { x: width, y: 0 },
+      bl: { x: 0, y: height },
+      br: { x: width, y: height },
+    };
+    const anchorLocal = anchors[corner];
+    referenceDrag.current = {
+      mode: 'scale',
+      pointerId,
+      latest: eventWorldPoint(event.nativeEvent),
+      original: image,
+      anchorLocal,
+      anchorWorld: referenceLocalToWorld(image.transform, anchorLocal),
+      cornerWorld: referenceLocalToWorld(image.transform, corners[corner]),
+    };
+    const svg = containerRef.current?.querySelector('svg');
+    svg?.setPointerCapture?.(pointerId);
+  };
+
   const handlePointerDown = (
     event: ReactPointerEvent<SVGSVGElement>,
   ) => {
@@ -473,6 +510,7 @@ export function SvgCanvas() {
       if (tool === 'adjust_reference') {
         const point = eventWorldPoint(event.nativeEvent);
         referenceDrag.current = {
+          mode: 'translate',
           pointerId: event.pointerId,
           start: point,
           latest: point,
@@ -547,13 +585,16 @@ export function SvgCanvas() {
     if (referenceDrag.current && tool === 'adjust_reference') {
       if (event.pointerId !== referenceDrag.current.pointerId) return;
       const point = eventWorldPoint(event.nativeEvent);
-      referenceDrag.current.latest = point;
+      const drag = referenceDrag.current;
+      drag.latest = point;
       setReferencePreview(
-        translateReference(
-          referenceDrag.current.original,
-          point.x_mm - referenceDrag.current.start.x_mm,
-          point.y_mm - referenceDrag.current.start.y_mm,
-        ),
+        drag.mode === 'scale'
+          ? scalePreviewFromDrag(drag)
+          : translateReference(
+              drag.original,
+              point.x_mm - drag.start.x_mm,
+              point.y_mm - drag.start.y_mm,
+            ),
       );
       return;
     }
@@ -636,15 +677,22 @@ export function SvgCanvas() {
     const drag = referenceDrag.current;
     if (drag) {
       if (event.pointerId !== drag.pointerId) return;
-      const translated = translateReference(
-        drag.original,
-        drag.latest.x_mm - drag.start.x_mm,
-        drag.latest.y_mm - drag.start.y_mm,
-      );
-      transact('平移参考图', (current) => ({
-        ...current,
-        reference_image: translated,
-      }));
+      if (drag.mode === 'scale') {
+        transact('缩放参考图', (current) => ({
+          ...current,
+          reference_image: scalePreviewFromDrag(drag),
+        }));
+      } else {
+        const translated = translateReference(
+          drag.original,
+          drag.latest.x_mm - drag.start.x_mm,
+          drag.latest.y_mm - drag.start.y_mm,
+        );
+        transact('平移参考图', (current) => ({
+          ...current,
+          reference_image: translated,
+        }));
+      }
       referenceDrag.current = null;
       setReferencePreview(null);
     }
@@ -672,6 +720,7 @@ export function SvgCanvas() {
             adjustable={tool === 'adjust_reference'}
             pixelsPerMm={viewport.pixelsPerMm}
             previewImage={referencePreview}
+            onStartScale={handleStartReferenceScale}
           />
           <FaceLayer
             document={document}
@@ -747,6 +796,45 @@ export function SvgCanvas() {
         snap={currentSnap}
       />
     </div>
+  );
+}
+
+type ReferenceDragState =
+  | {
+      mode: 'translate';
+      pointerId: number;
+      start: BuildingVertex;
+      latest: BuildingVertex;
+      original: ReferenceImage;
+    }
+  | {
+      mode: 'scale';
+      pointerId: number;
+      latest: BuildingVertex;
+      original: ReferenceImage;
+      anchorLocal: ReferencePoint;
+      anchorWorld: ReferencePoint;
+      cornerWorld: ReferencePoint;
+    };
+
+/** 根据拖拽终点计算缩放后的参考图：锚点钉住不动，角点跟随指针在锚点连线上的投影 */
+function scalePreviewFromDrag(
+  drag: Extract<ReferenceDragState, { mode: 'scale' }>,
+): ReferenceImage {
+  const { latest, original, anchorLocal, anchorWorld, cornerWorld } = drag;
+  const dx = cornerWorld.x - anchorWorld.x;
+  const dy = cornerWorld.y - anchorWorld.y;
+  const denom = dx * dx + dy * dy;
+  const factor =
+    denom > 0
+      ? ((latest.x_mm - anchorWorld.x) * dx +
+          (latest.y_mm - anchorWorld.y) * dy) /
+        denom
+      : 1;
+  return scaleReferenceAround(
+    original,
+    original.transform.scale * factor,
+    anchorLocal,
   );
 }
 

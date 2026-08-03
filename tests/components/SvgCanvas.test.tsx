@@ -992,4 +992,85 @@ describe('SvgCanvas', () => {
     });
     expect(document.vertices).toEqual(beforeVertices);
   });
+
+  it('renders scale handles only in adjust-reference mode', () => {
+    useEditorStore.getState().setTool('adjust_reference');
+    render(<SvgCanvas />);
+
+    expect(
+      screen.getByTestId('reference-scale-handle-hit-br'),
+    ).toBeTruthy();
+
+    act(() => useEditorStore.getState().setTool('select'));
+    expect(screen.queryByTestId('reference-scale-handle-hit-br')).toBeNull();
+  });
+
+  it('scales the reference image by dragging its bottom-right handle', () => {
+    const document = useEditorStore.getState().buildingDocument!;
+    document.reference_image.width_px = 400;
+    document.reference_image.height_px = 200;
+    useEditorStore.getState().loadBuilding(document);
+    useEditorStore.getState().setTool('adjust_reference');
+    render(<SvgCanvas />);
+    const canvas = screen.getByTestId('svg-canvas');
+
+    fireEvent.pointerDown(screen.getByTestId('reference-scale-handle-hit-br'), {
+      pointerId: 5,
+      clientX: 140,
+      clientY: 480,
+    });
+    fireEvent.pointerMove(canvas, {
+      pointerId: 5,
+      clientX: 160,
+      clientY: 470,
+    });
+
+    // 拖拽过程中预览实时缩放
+    const previewGroup =
+      screen.getByTestId('reference-image').parentElement!;
+    expect(previewGroup.getAttribute('transform')).toBe(
+      'translate(0 0) rotate(0) scale(1.5)',
+    );
+
+    fireEvent.pointerUp(canvas, { pointerId: 5, clientX: 160, clientY: 470 });
+
+    const next = useEditorStore.getState().buildingDocument!;
+    expect(next.reference_image.transform).toMatchObject({
+      translate_x_mm: 0,
+      translate_y_mm: 0,
+      scale: 1.5,
+    });
+  });
+
+  it('scales a rotated reference image around the opposite corner', () => {
+    const document = useEditorStore.getState().buildingDocument!;
+    document.reference_image.width_px = 400;
+    document.reference_image.height_px = 200;
+    document.reference_image.transform.rotation_deg = 90;
+    useEditorStore.getState().loadBuilding(document);
+    useEditorStore.getState().setTool('adjust_reference');
+    render(<SvgCanvas />);
+    const canvas = screen.getByTestId('svg-canvas');
+
+    // tl 角点（世界坐标 (0,0)），绕对角的 br 锚点缩放
+    fireEvent.pointerDown(screen.getByTestId('reference-scale-handle-hit-tl'), {
+      pointerId: 6,
+      clientX: 100,
+      clientY: 500,
+    });
+    fireEvent.pointerMove(canvas, {
+      pointerId: 6,
+      clientX: 110,
+      clientY: 520,
+    });
+    fireEvent.pointerUp(canvas, { pointerId: 6, clientX: 110, clientY: 520 });
+
+    const next = useEditorStore.getState().buildingDocument!;
+    const { translate_x_mm, translate_y_mm, scale, rotation_deg } =
+      next.reference_image.transform;
+    expect(translate_x_mm).toBeCloseTo(100);
+    expect(translate_y_mm).toBeCloseTo(-200);
+    expect(scale).toBeCloseTo(1.5);
+    expect(rotation_deg).toBe(90);
+  });
 });

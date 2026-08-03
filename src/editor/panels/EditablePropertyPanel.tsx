@@ -6,6 +6,8 @@ import {
   type WallLengthAnchor,
 } from '@/editor/domain/wallEditing.ts';
 import {
+  REFERENCE_SCALE_MAX,
+  REFERENCE_SCALE_MIN,
   rotateReference,
   scaleReference,
   setReferenceOpacity,
@@ -194,22 +196,62 @@ function WallProperties({ wallId }: { wallId: string }) {
   );
 }
 
+/**
+ * 草稿式数字输入：未聚焦时显示文档实时值（画布拖拽修改会同步显示），
+ * 聚焦编辑期间显示用户输入，失焦提交后清除草稿。
+ */
+function useDraftField(committed: string) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return {
+    display: draft ?? committed,
+    begin: () => setDraft(committed),
+    change: (next: string) => setDraft(next),
+    end: () => setDraft(null),
+  };
+}
+
+function ReferenceNumberField({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  min?: number;
+  max?: number;
+  step?: number | string;
+  onCommit: (text: string) => void;
+}) {
+  const field = useDraftField(value);
+  return (
+    <label className={styles.field}>
+      <span>{label}</span>
+      <input
+        aria-label={label}
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={field.display}
+        onFocus={field.begin}
+        onChange={(event) => field.change(event.target.value)}
+        onBlur={() => {
+          onCommit(field.display);
+          field.end();
+        }}
+      />
+    </label>
+  );
+}
+
 function ReferenceProperties() {
   const image = useEditorStore(
     (state) => state.buildingDocument!.reference_image,
   );
   const transact = useEditorStore((state) => state.transact);
-  const [opacity, setOpacity] = useState(String(image.opacity));
-  const [scale, setScale] = useState(String(image.transform.scale));
-  const [rotation, setRotation] = useState(
-    String(image.transform.rotation_deg),
-  );
-  const [translateX, setTranslateX] = useState(
-    String(image.transform.translate_x_mm / 1000),
-  );
-  const [translateY, setTranslateY] = useState(
-    String(image.transform.translate_y_mm / 1000),
-  );
 
   const updateImage = (
     description: string,
@@ -225,105 +267,80 @@ function ReferenceProperties() {
       <div className={styles.header}>参考草图</div>
       <div className={styles.content}>
         <div className={styles.readOnly}>{image.path}</div>
-        <label className={styles.field}>
-          <span>透明度</span>
-          <input
-            aria-label="透明度"
-            type="number"
-            min="0"
-            max="1"
-            step="0.05"
-            value={opacity}
-            onChange={(event) => setOpacity(event.target.value)}
-            onBlur={() => {
-              const value = Number(opacity);
-              if (!Number.isFinite(value)) return;
-              updateImage('修改参考图透明度', (current) =>
-                setReferenceOpacity(current, value),
-              );
-            }}
-          />
-        </label>
-        <label className={styles.field}>
-          <span>缩放</span>
-          <input
-            aria-label="参考图缩放"
-            type="number"
-            min="0.05"
-            max="20"
-            step="0.05"
-            value={scale}
-            onChange={(event) => setScale(event.target.value)}
-            onBlur={() => {
-              const value = Number(scale);
-              if (!Number.isFinite(value) || value <= 0) return;
-              updateImage('缩放参考图', (current) =>
-                scaleReference(current, value / current.transform.scale),
-              );
-            }}
-          />
-        </label>
-        <label className={styles.field}>
-          <span>旋转（度）</span>
-          <input
-            aria-label="参考图旋转"
-            type="number"
-            value={rotation}
-            onChange={(event) => setRotation(event.target.value)}
-            onBlur={() => {
-              const value = Number(rotation);
-              if (!Number.isFinite(value)) return;
-              updateImage('旋转参考图', (current) =>
-                rotateReference(
-                  current,
-                  value - current.transform.rotation_deg,
-                ),
-              );
-            }}
-          />
-        </label>
-        <label className={styles.field}>
-          <span>水平位置（米）</span>
-          <input
-            aria-label="参考图水平位置"
-            type="number"
-            step="0.1"
-            value={translateX}
-            onChange={(event) => setTranslateX(event.target.value)}
-            onBlur={() => {
-              const valueMm = Math.round(Number(translateX) * 1000);
-              if (!Number.isFinite(valueMm)) return;
-              updateImage('平移参考图', (current) =>
-                translateReference(
-                  current,
-                  valueMm - current.transform.translate_x_mm,
-                  0,
-                ),
-              );
-            }}
-          />
-        </label>
-        <label className={styles.field}>
-          <span>垂直位置（米）</span>
-          <input
-            aria-label="参考图垂直位置"
-            type="number"
-            step="0.1"
-            value={translateY}
-            onChange={(event) => setTranslateY(event.target.value)}
-            onBlur={() => {
-              const valueMm = Math.round(Number(translateY) * 1000);
-              if (!Number.isFinite(valueMm)) return;
-              updateImage('平移参考图', (current) =>
-                translateReference(
-                  current,
-                  0,
-                  valueMm - current.transform.translate_y_mm,
-                ),
-              );
-            }}
-          />
-        </label>
+        <ReferenceNumberField
+          label="透明度"
+          value={String(image.opacity)}
+          min={0}
+          max={1}
+          step="0.05"
+          onCommit={(text) => {
+            const value = Number(text);
+            if (!Number.isFinite(value)) return;
+            updateImage('修改参考图透明度', (current) =>
+              setReferenceOpacity(current, value),
+            );
+          }}
+        />
+        <ReferenceNumberField
+          label="参考图缩放"
+          value={String(image.transform.scale)}
+          min={REFERENCE_SCALE_MIN}
+          max={REFERENCE_SCALE_MAX}
+          step="0.05"
+          onCommit={(text) => {
+            const value = Number(text);
+            if (!Number.isFinite(value) || value <= 0) return;
+            updateImage('缩放参考图', (current) =>
+              scaleReference(current, value / current.transform.scale),
+            );
+          }}
+        />
+        <ReferenceNumberField
+          label="参考图旋转"
+          value={String(image.transform.rotation_deg)}
+          onCommit={(text) => {
+            const value = Number(text);
+            if (!Number.isFinite(value)) return;
+            updateImage('旋转参考图', (current) =>
+              rotateReference(
+                current,
+                value - current.transform.rotation_deg,
+              ),
+            );
+          }}
+        />
+        <ReferenceNumberField
+          label="参考图水平位置"
+          value={String(image.transform.translate_x_mm / 1000)}
+          step="0.1"
+          onCommit={(text) => {
+            const valueMm = Math.round(Number(text) * 1000);
+            if (!Number.isFinite(valueMm)) return;
+            updateImage('平移参考图', (current) =>
+              translateReference(
+                current,
+                valueMm - current.transform.translate_x_mm,
+                0,
+              ),
+            );
+          }}
+        />
+        <ReferenceNumberField
+          label="参考图垂直位置"
+          value={String(image.transform.translate_y_mm / 1000)}
+          step="0.1"
+          onCommit={(text) => {
+            const valueMm = Math.round(Number(text) * 1000);
+            if (!Number.isFinite(valueMm)) return;
+            updateImage('平移参考图', (current) =>
+              translateReference(
+                current,
+                0,
+                valueMm - current.transform.translate_y_mm,
+              ),
+            );
+          }}
+        />
       </div>
     </aside>
   );
