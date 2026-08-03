@@ -4,6 +4,9 @@ import path from 'node:path';
 import { ZipArchive } from 'archiver';
 import { createEmptyBuilding } from '../src/editor/domain/buildingDocument.js';
 import type { BuildingDocument } from '../src/editor/domain/buildingTypes.js';
+import { prepareExportDocument } from '../src/editor/domain/exportUtils.js';
+import { generateSpatialGraph } from '../src/editor/domain/spatialGraph.js';
+import { exportBuildingToGeoJson } from '../src/editor/domain/buildingGeoJson.js';
 import { migrateToCurrent } from '../src/editor/domain/migrations/index.js';
 import { atomicWriteJson } from './atomicWrite.js';
 import { ServiceError } from './errors.js';
@@ -16,10 +19,29 @@ import {
   resolvePackageFile,
   validateBuildingId,
 } from './pathSafety.js';
+import {
+  assertValidForOperation,
+  validateForOperation,
+  checkResearchExportRequirements,
+} from './validationService.js';
 
 export interface ExportOptions {
   scale?: string;
   scaleBar?: boolean;
+}
+
+export interface ProjectCommandInput {
+  document: BuildingDocument;
+  clientRevision: number;
+}
+
+export interface SubmittedExportInput extends ProjectCommandInput {
+  options?: ExportOptions;
+}
+
+export interface SubmittedExportResult {
+  zipPath: string;
+  document: BuildingDocument;
 }
 
 const SCALE_PRESETS: Record<string, number> = {
@@ -74,6 +96,8 @@ const EXTENSION_BY_MIME: Record<string, string> = {
 const REVISIONS_DIR = 'revisions';
 
 export class ProjectService {
+  private readonly projectQueues = new Map<string, Promise<void>>();
+
   constructor(private readonly dataRoot: string) {}
 
   /** 确保 data/ 和 data/.trash/ 目录存在，服务启动时调用 */
@@ -285,7 +309,11 @@ export class ProjectService {
 
   async open(
     buildingId: string,
-  ): Promise<{ document: BuildingDocument; recovered_from_draft: boolean }> {
+  ): Promise<{
+    document: BuildingDocument;
+    recovered_from_draft: boolean;
+    validation_warnings: string[];
+  }> {
     const buildingDir = resolveBuildingDir(this.dataRoot, buildingId);
     const draftPath = path.join(
       buildingDir,
@@ -312,9 +340,32 @@ export class ProjectService {
 
     // 迁移旧版本数据到当前 schema
     const migration = migrateToCurrent(result.document as unknown as Record<string, unknown>);
+    const document = migration.document;
+
+    // 打开时校验但不阻止 — 收集警告供调用方参考
+    const validation = validateForOperation(document, 'open');
+    const validation_warnings: string[] = [
+      ...migration.warnings,
+    ];
+    if (!validation.schemaResult.valid) {
+      validation_warnings.push(
+        `Schema 校验未通过 (${validation.schemaResult.errors.length} 项)，数据可能不完整`,
+      );
+    }
+    const businessErrors = validation.businessIssues.filter(
+      (i) => i.severity === 'error',
+    );
+    if (businessErrors.length > 0) {
+      validation_warnings.push(
+        `业务校验错误 (${businessErrors.length} 项)：${businessErrors.map((e) => e.code).join(', ')}`,
+      );
+    }
+
     return {
-      document: migration.document,
-      recovered_from_draft: result.recovered_from_draft || migration.warnings.length > 0,
+      document,
+      recovered_from_draft:
+        result.recovered_from_draft || migration.warnings.length > 0,
+      validation_warnings,
     };
   }
 
@@ -328,6 +379,17 @@ export class ProjectService {
     clientRevision?: number,
   ): Promise<BuildingDocument> {
     const safeId = validateBuildingId(buildingId);
+    return this.withProjectLock(safeId, () =>
+      this.autosaveUnlocked(safeId, document, clientRevision),
+    );
+  }
+
+  private async autosaveUnlocked(
+    buildingId: string,
+    document: BuildingDocument,
+    clientRevision?: number,
+  ): Promise<BuildingDocument> {
+    const safeId = validateBuildingId(buildingId);
     if (document.building_id !== safeId) {
       throw new ServiceError(
         '请求路径中的建筑 ID 与文档不一致',
@@ -335,6 +397,9 @@ export class ProjectService {
         'BUILDING_ID_MISMATCH',
       );
     }
+
+    // Schema 校验 — 无效文档拒绝保存
+    assertValidForOperation(document, 'autosave');
 
     const buildingDir = resolveBuildingDir(this.dataRoot, safeId);
     try {
@@ -363,9 +428,11 @@ export class ProjectService {
       ...document,
       metadata: {
         ...document.metadata,
+        status: current.document.metadata.status,
         updated_at: new Date().toISOString(),
         revision: serverRevision + 1,
       },
+      workflow: structuredClone(current.document.workflow),
     };
 
     await atomicWriteJson(
@@ -379,26 +446,46 @@ export class ProjectService {
   // v2.1.0: 工作流状态转换
   // ============================================================
 
-  async submitReview(buildingId: string): Promise<BuildingDocument> {
-    return this.transitionStatus(buildingId, 'pending_review', ['draft']);
+  async submitReview(
+    buildingId: string,
+    input: ProjectCommandInput,
+  ): Promise<BuildingDocument> {
+    return this.executeWorkflowCommand(
+      buildingId,
+      input,
+      'pending_review',
+      'draft',
+    );
   }
 
-  async review(buildingId: string, reviewer?: string): Promise<BuildingDocument> {
-    const doc = await this.transitionStatus(buildingId, 'reviewed', ['pending_review']);
-    doc.workflow = {
-      ...doc.workflow,
-      reviewer: reviewer ?? doc.workflow.reviewer,
-      reviewed_at: new Date().toISOString(),
-    };
-    return doc;
+  async review(
+    buildingId: string,
+    input: ProjectCommandInput,
+    reviewer?: string,
+  ): Promise<BuildingDocument> {
+    return this.executeWorkflowCommand(
+      buildingId,
+      input,
+      'reviewed',
+      'pending_review',
+      reviewer,
+    );
   }
 
-  async complete(buildingId: string): Promise<BuildingDocument> {
+  async complete(
+    buildingId: string,
+    input: ProjectCommandInput,
+  ): Promise<BuildingDocument> {
     const safeId = validateBuildingId(buildingId);
-    const { document } = await this.open(safeId);
+    return this.withProjectLock(safeId, async () => {
+    const current = await this.assertCommandInput(safeId, input);
+    const document = input.document;
 
-    // 强制检查：只能在 reviewed 状态完成
-    if (document.workflow.status !== 'reviewed' && document.workflow.status !== 'draft') {
+    // 强制检查：只能在 reviewed 或 draft 状态完成
+    if (
+      current.workflow.status !== 'reviewed' ||
+      document.workflow.status !== 'reviewed'
+    ) {
       throw new ServiceError(
         `当前状态 "${document.workflow.status}" 不允许直接完成，请先通过审核`,
         409,
@@ -406,34 +493,32 @@ export class ProjectService {
       );
     }
 
-    // 运行校验（简化版：检查是否有错误）
-    const issues = document.validation.issues ?? [];
-    const errors = issues.filter((i) => i.level === 'error');
-    if (errors.length > 0) {
-      throw new ServiceError(
-        `存在 ${errors.length} 个错误，无法完成项目`,
-        409,
-        'VALIDATION_ERRORS',
-      );
-    }
+    // Schema + 业务校验 — 阻止有错误的文档完成
+    assertValidForOperation(document, 'complete');
+    this.assertResearchRequirements(document);
 
-    const completed: BuildingDocument = {
+    const completed = prepareExportDocument({
       ...document,
       metadata: {
         ...document.metadata,
         status: 'complete',
         updated_at: new Date().toISOString(),
-        revision: document.metadata.revision + 1,
+        revision: current.metadata.revision + 1,
       },
       workflow: {
         ...document.workflow,
         status: 'complete',
         completed_at: new Date().toISOString(),
       },
-    };
+    });
 
     const buildingDir = resolveBuildingDir(this.dataRoot, safeId);
 
+    await this.saveRevision(safeId, completed, 'complete');
+    await atomicWriteJson(
+      path.join(buildingDir, 'draft', 'building.autosave.json'),
+      completed,
+    );
     // 保存正式版本
     await atomicWriteJson(
       path.join(buildingDir, 'building.json'),
@@ -441,13 +526,13 @@ export class ProjectService {
     );
 
     // 保存到 revisions
-    await this.saveRevision(safeId, completed, 'complete');
-
     return completed;
+    });
   }
 
   async reopen(buildingId: string): Promise<BuildingDocument> {
     const safeId = validateBuildingId(buildingId);
+    return this.withProjectLock(safeId, async () => {
     const { document } = await this.open(safeId);
 
     if (document.workflow.status !== 'complete') {
@@ -476,13 +561,15 @@ export class ProjectService {
     };
 
     const buildingDir = resolveBuildingDir(this.dataRoot, safeId);
-    await fs.unlink(path.join(buildingDir, 'building.json')).catch(() => {});
+    await this.saveRevision(safeId, reopened, 'reopen');
     await atomicWriteJson(
       path.join(buildingDir, 'draft', 'building.autosave.json'),
       reopened,
     );
+    await fs.unlink(path.join(buildingDir, 'building.json')).catch(() => {});
 
     return reopened;
+    });
   }
 
   // ============================================================
@@ -557,8 +644,12 @@ export class ProjectService {
     buildingId: string,
     revision: number,
   ): Promise<BuildingDocument> {
-    const document = await this.getRevision(buildingId, revision);
     const safeId = validateBuildingId(buildingId);
+    return this.withProjectLock(safeId, async () => {
+    const [document, current] = await Promise.all([
+      this.getRevision(safeId, revision),
+      this.open(safeId),
+    ]);
     const buildingDir = resolveBuildingDir(this.dataRoot, safeId);
     const restored: BuildingDocument = {
       ...document,
@@ -566,24 +657,77 @@ export class ProjectService {
         ...document.metadata,
         status: 'draft',
         updated_at: new Date().toISOString(),
-        revision: document.metadata.revision + 1,
+        revision: current.document.metadata.revision + 1,
       },
       workflow: {
         ...document.workflow,
         status: 'draft',
+        reviewer: undefined,
+        reviewed_at: undefined,
+        completed_at: undefined,
       },
     };
-    await fs.unlink(path.join(buildingDir, 'building.json')).catch(() => {});
+    await this.saveRevision(safeId, restored, 'restore');
     await atomicWriteJson(
       path.join(buildingDir, 'draft', 'building.autosave.json'),
       restored,
     );
+    await fs.unlink(path.join(buildingDir, 'building.json')).catch(() => {});
     return restored;
+    });
   }
 
   // ============================================================
   // 导出
   // ============================================================
+
+  async exportSubmittedToZip(
+    buildingId: string,
+    input: SubmittedExportInput,
+  ): Promise<SubmittedExportResult> {
+    const safeId = validateBuildingId(buildingId);
+    return this.withProjectLock(safeId, async () => {
+      const current = await this.assertCommandInput(safeId, input);
+      const submitted = input.document;
+      assertValidForOperation(submitted, 'research_export');
+      this.assertResearchRequirements(submitted);
+
+      const changed = !sameDocumentContent(current, submitted);
+      if (changed && current.workflow.status === 'complete') {
+        throw new ServiceError(
+          'Completed projects are read-only. Reopen before editing.',
+          409,
+          'PROJECT_READ_ONLY',
+        );
+      }
+
+      const committed = changed
+        ? prepareExportDocument({
+            ...submitted,
+            metadata: {
+              ...submitted.metadata,
+              status: current.metadata.status,
+              updated_at: new Date().toISOString(),
+              revision: current.metadata.revision + 1,
+            },
+            workflow: structuredClone(current.workflow),
+          })
+        : current;
+      if (changed) {
+        await atomicWriteJson(
+          path.join(
+            resolveBuildingDir(this.dataRoot, safeId),
+            'draft',
+            'building.autosave.json',
+          ),
+          committed,
+        );
+      }
+
+      const zipPath = await this.exportToZip(safeId, input.options);
+      return { zipPath, document: committed };
+    });
+  }
 
   async exportToZip(buildingId: string, options?: ExportOptions): Promise<string> {
     const safeId = validateBuildingId(buildingId);
@@ -603,13 +747,27 @@ export class ProjectService {
 
     // Read the current document to stamp metadata
     const { document } = await this.open(safeId);
-    const finalDocument: BuildingDocument = {
-      ...document,
-      metadata: {
-        ...document.metadata,
-        updated_at: new Date().toISOString(),
-      },
-    };
+
+    // Schema + 业务校验 — 无效文档拒绝导出
+    assertValidForOperation(document, 'research_export');
+
+    // research_export 额外检查
+    const extraIssues = checkResearchExportRequirements(document);
+    if (extraIssues.length > 0) {
+      const issueMessages = extraIssues.map(
+        (i) => `  ${i.field}: ${i.message}`,
+      );
+      throw new ServiceError(
+        `研究级导出要求不满足：\n${issueMessages.join('\n')}`,
+        422,
+        'RESEARCH_EXPORT_REQUIREMENTS_NOT_MET',
+        extraIssues,
+      );
+    }
+
+    const finalDocument = prepareExportDocument(document);
+    const spatialGraph = generateSpatialGraph(finalDocument);
+    const buildingGeoJson = exportBuildingToGeoJson(finalDocument);
 
     // --- PNG 渲染 ---
     const pixelsPerMm = options?.scale && SCALE_PRESETS[options.scale]
@@ -637,6 +795,12 @@ export class ProjectService {
       archive.append(JSON.stringify(finalDocument, null, 2), {
         name: 'building.json',
       });
+      archive.append(JSON.stringify(spatialGraph, null, 2), {
+        name: 'spatial_graph.json',
+      });
+      archive.append(JSON.stringify(buildingGeoJson, null, 2), {
+        name: 'building.geojson',
+      });
 
       // Add floor plan PNG
       archive.append(pngBuffer, {
@@ -660,6 +824,24 @@ export class ProjectService {
         wall_count: Object.keys(finalDocument.walls).length,
         face_count: Object.keys(finalDocument.faces).length,
         element_count: Object.keys(finalDocument.wall_elements).length,
+        status: finalDocument.workflow.status,
+        revision: finalDocument.metadata.revision,
+        validation_error_count:
+          finalDocument.structured_validation?.filter(
+            (issue) => issue.severity === 'error',
+          ).length ?? 0,
+        validation_warning_count:
+          finalDocument.structured_validation?.filter(
+            (issue) => issue.severity === 'warning',
+          ).length ?? 0,
+        files: [
+          'building.json',
+          'spatial_graph.json',
+          'building.geojson',
+          'floorplan.png',
+          `reference.${path.extname(finalDocument.reference_image.path).slice(1)}`,
+          'metadata.json',
+        ],
         wall_thickness_mm: finalDocument.building_defaults.wall_thickness_mm,
         wall_height_mm: finalDocument.building_defaults.wall_height_mm,
       };
@@ -680,6 +862,122 @@ export class ProjectService {
   // ============================================================
   // Private helpers
   // ============================================================
+
+  private async withProjectLock<T>(
+    buildingId: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.projectQueues.get(buildingId) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => current);
+    this.projectQueues.set(buildingId, tail);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.projectQueues.get(buildingId) === tail) {
+        this.projectQueues.delete(buildingId);
+      }
+    }
+  }
+
+  private async assertCommandInput(
+    buildingId: string,
+    input: ProjectCommandInput,
+  ): Promise<BuildingDocument> {
+    if (!input?.document || !Number.isInteger(input.clientRevision)) {
+      throw new ServiceError(
+        'document and client_revision are required.',
+        400,
+        'INVALID_COMMAND',
+      );
+    }
+    if (input.document.building_id !== buildingId) {
+      throw new ServiceError(
+        'Request building ID does not match document building ID.',
+        409,
+        'BUILDING_ID_MISMATCH',
+      );
+    }
+    const current = (await this.open(buildingId)).document;
+    if (input.clientRevision !== current.metadata.revision) {
+      throw new ServiceError(
+        `Revision conflict: client ${input.clientRevision}, server ${current.metadata.revision}.`,
+        409,
+        'REVISION_CONFLICT',
+        {
+          client_revision: input.clientRevision,
+          server_revision: current.metadata.revision,
+        },
+      );
+    }
+    assertValidForOperation(input.document, 'autosave');
+    return current;
+  }
+
+  private assertResearchRequirements(document: BuildingDocument): void {
+    const issues = checkResearchExportRequirements(document);
+    if (issues.length === 0) return;
+    throw new ServiceError(
+      'Research export requirements are not met.',
+      422,
+      'RESEARCH_EXPORT_REQUIREMENTS_NOT_MET',
+      issues,
+    );
+  }
+
+  private async executeWorkflowCommand(
+    buildingId: string,
+    input: ProjectCommandInput,
+    targetStatus: BuildingDocument['workflow']['status'],
+    allowedFrom: BuildingDocument['workflow']['status'],
+    reviewer?: string,
+  ): Promise<BuildingDocument> {
+    const safeId = validateBuildingId(buildingId);
+    return this.withProjectLock(safeId, async () => {
+      const current = await this.assertCommandInput(safeId, input);
+      if (
+        current.workflow.status !== allowedFrom ||
+        input.document.workflow.status !== allowedFrom
+      ) {
+        throw new ServiceError(
+          `Status transition ${current.workflow.status} -> ${targetStatus} is not allowed.`,
+          409,
+          'INVALID_TRANSITION',
+        );
+      }
+      const now = new Date().toISOString();
+      const updated = prepareExportDocument({
+        ...input.document,
+        metadata: {
+          ...input.document.metadata,
+          status: targetStatus,
+          revision: current.metadata.revision + 1,
+          updated_at: now,
+        },
+        workflow: {
+          ...input.document.workflow,
+          status: targetStatus,
+          ...(targetStatus === 'reviewed'
+            ? { reviewer, reviewed_at: now }
+            : {}),
+        },
+      });
+      await atomicWriteJson(
+        path.join(
+          resolveBuildingDir(this.dataRoot, safeId),
+          'draft',
+          'building.autosave.json',
+        ),
+        updated,
+      );
+      return updated;
+    });
+  }
 
   private async transitionStatus(
     buildingId: string,
@@ -737,6 +1035,31 @@ export class ProjectService {
 }
 
 // ---- Helpers ----
+
+function sameDocumentContent(
+  left: BuildingDocument,
+  right: BuildingDocument,
+): boolean {
+  const comparable = (document: BuildingDocument): unknown => {
+    const clone = structuredClone(document);
+    delete clone.statistics;
+    delete clone.structured_validation;
+    delete (clone.metadata as Partial<BuildingDocument['metadata']>).revision;
+    delete (clone.metadata as Partial<BuildingDocument['metadata']>).updated_at;
+    return sortJson(clone);
+  };
+  return JSON.stringify(comparable(left)) === JSON.stringify(comparable(right));
+}
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJson);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, sortJson(entry)]),
+  );
+}
 
 function summarizeDocument(document: BuildingDocument): ProjectSummary {
   const faces = Object.values(document.faces ?? {});

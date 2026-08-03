@@ -3,6 +3,7 @@ export class ServiceError extends Error {
     message: string,
     readonly status: number,
     readonly code: string,
+    readonly details?: unknown,
   ) {
     super(message);
     this.name = 'ServiceError';

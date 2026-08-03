@@ -113,10 +113,12 @@ export function createProjectRouter(projectService: ProjectService): Router {
       typeof body._clientRevision === 'number'
         ? body._clientRevision
         : (body.metadata?.revision ?? undefined);
+    const document = { ...body };
+    delete document._clientRevision;
 
     const saved = await projectService.autosave(
       request.params.buildingId,
-      body,
+      document as BuildingDocument,
       clientRevision,
     );
     response.json(saved);
@@ -126,7 +128,10 @@ export function createProjectRouter(projectService: ProjectService): Router {
 
   router.post('/:buildingId/submit-review', async (request, response) => {
     response.json(
-      await projectService.submitReview(request.params.buildingId),
+      await projectService.submitReview(
+        request.params.buildingId,
+        commandInput(request.body),
+      ),
     );
   });
 
@@ -136,13 +141,20 @@ export function createProjectRouter(projectService: ProjectService): Router {
         ? request.body.reviewer
         : undefined;
     response.json(
-      await projectService.review(request.params.buildingId, reviewer),
+      await projectService.review(
+        request.params.buildingId,
+        commandInput(request.body),
+        reviewer,
+      ),
     );
   });
 
   router.post('/:buildingId/complete', async (request, response) => {
     response.json(
-      await projectService.complete(request.params.buildingId),
+      await projectService.complete(
+        request.params.buildingId,
+        commandInput(request.body),
+      ),
     );
   });
 
@@ -205,6 +217,27 @@ export function createProjectRouter(projectService: ProjectService): Router {
 
   // ---- 导出 ----
 
+  router.post('/:buildingId/export', async (request, response) => {
+    const command = commandInput(request.body);
+    const options = request.body?.options ?? {};
+    const result = await projectService.exportSubmittedToZip(
+      request.params.buildingId,
+      {
+        ...command,
+        options: {
+          scale:
+            typeof options.scale === 'string' ? options.scale : undefined,
+          scaleBar: options.scale_bar === true,
+        },
+      },
+    );
+    response.setHeader(
+      'X-Building-Revision',
+      String(result.document.metadata.revision),
+    );
+    response.download(result.zipPath, path.basename(result.zipPath));
+  });
+
   router.get('/:buildingId/export', async (request, response) => {
     const scale =
       typeof request.query.scale === 'string'
@@ -223,4 +256,18 @@ export function createProjectRouter(projectService: ProjectService): Router {
   });
 
   return router;
+}
+
+function commandInput(body: unknown): {
+  document: BuildingDocument;
+  clientRevision: number;
+} {
+  const value = body as {
+    document?: BuildingDocument;
+    client_revision?: number;
+  } | null;
+  return {
+    document: value?.document as BuildingDocument,
+    clientRevision: value?.client_revision as number,
+  };
 }

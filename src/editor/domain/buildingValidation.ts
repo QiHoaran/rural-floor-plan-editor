@@ -12,6 +12,9 @@ import type {
   ValidationCategory,
   ValidationEntityType,
 } from './buildingTypes.ts';
+import { intersectSegments } from '../topology/segmentIntersection.ts';
+import { validateConnectivity } from '../connectivity/connectivityValidation.ts';
+import { deriveRelations } from '../connectivity/deriveRelations.ts';
 
 // ---- 问题定义 ----
 interface IssueDefinition {
@@ -30,6 +33,24 @@ const ISSUE_DEFINITIONS: Record<string, IssueDefinition> = {
     message_key: 'validation.schema_invalid',
     fix_suggestion_key: 'fix.schema_invalid',
   },
+  VALIDATION_INTERNAL_ERROR: {
+    code: 'VALIDATION_INTERNAL_ERROR',
+    severity: 'error',
+    category: 'schema',
+    message_key: 'validation.internal_error',
+  },
+  RELATIONS_OUT_OF_DATE: {
+    code: 'RELATIONS_OUT_OF_DATE',
+    severity: 'error',
+    category: 'topology',
+    message_key: 'validation.relations_out_of_date',
+  },
+  RELATION_DERIVATION_ERROR: {
+    code: 'RELATION_DERIVATION_ERROR',
+    severity: 'error',
+    category: 'topology',
+    message_key: 'validation.relation_derivation_error',
+  },
   WALL_ZERO_LENGTH: {
     code: 'WALL_ZERO_LENGTH',
     severity: 'error',
@@ -39,7 +60,7 @@ const ISSUE_DEFINITIONS: Record<string, IssueDefinition> = {
   },
   WALL_DUPLICATED: {
     code: 'WALL_DUPLICATED',
-    severity: 'warning',
+    severity: 'error',
     category: 'geometry',
     message_key: 'validation.wall_duplicated',
     fix_suggestion_key: 'fix.wall_duplicated',
@@ -50,6 +71,42 @@ const ISSUE_DEFINITIONS: Record<string, IssueDefinition> = {
     category: 'geometry',
     message_key: 'validation.wall_intersection_invalid',
     fix_suggestion_key: 'fix.wall_intersection_invalid',
+  },
+  WALL_VERTEX_MISSING: {
+    code: 'WALL_VERTEX_MISSING',
+    severity: 'error',
+    category: 'topology',
+    message_key: 'validation.wall_vertex_missing',
+  },
+  FACE_VERTEX_MISSING: {
+    code: 'FACE_VERTEX_MISSING',
+    severity: 'error',
+    category: 'topology',
+    message_key: 'validation.face_vertex_missing',
+  },
+  OUTSIDE_REGION_VERTEX_MISSING: {
+    code: 'OUTSIDE_REGION_VERTEX_MISSING',
+    severity: 'error',
+    category: 'topology',
+    message_key: 'validation.outside_region_vertex_missing',
+  },
+  FLOOR_WALL_MISSING: {
+    code: 'FLOOR_WALL_MISSING',
+    severity: 'error',
+    category: 'topology',
+    message_key: 'validation.floor_wall_missing',
+  },
+  FLOOR_FACE_MISSING: {
+    code: 'FLOOR_FACE_MISSING',
+    severity: 'error',
+    category: 'topology',
+    message_key: 'validation.floor_face_missing',
+  },
+  RELATION_REFERENCE_MISSING: {
+    code: 'RELATION_REFERENCE_MISSING',
+    severity: 'error',
+    category: 'topology',
+    message_key: 'validation.relation_reference_missing',
   },
   FACE_NOT_CLOSED: {
     code: 'FACE_NOT_CLOSED',
@@ -130,6 +187,9 @@ const ISSUE_DEFINITIONS: Record<string, IssueDefinition> = {
 
 // ---- 中文消息映射 ----
 const ZH_MESSAGES: Record<string, string> = {
+  'validation.internal_error': '校验器内部错误',
+  'validation.relations_out_of_date': '空间关系与当前拓扑不一致',
+  'validation.relation_derivation_error': '无法从当前拓扑推导空间关系',
   'validation.schema_invalid': '数据格式不符合 Schema 规范',
   'validation.wall_zero_length': '墙体长度为零',
   'validation.wall_duplicated': '存在重复墙体',
@@ -229,7 +289,53 @@ export function validateBuildingDocumentFull(
   // 参考校验
   issues.push(...validateReference(document));
 
+  const derived = deriveRelations(document);
+  if (!sameRelations(document.relations, derived.relations)) {
+    issues.push(createValidationIssue('RELATIONS_OUT_OF_DATE', 'building'));
+  }
+  for (const issue of derived.issues) {
+    issues.push(
+      createValidationIssue(
+        'RELATION_DERIVATION_ERROR',
+        issue.entity?.type ?? 'building',
+        issue.entity?.id,
+        { source_code: issue.code },
+      ),
+    );
+  }
+  const withDerivedRelations: BuildingDocument = {
+    ...document,
+    relations: derived.relations,
+  };
+  for (const issue of validateConnectivity(withDerivedRelations)) {
+    const mappedCode = {
+      FACE_NOT_PEOPLE_REACHABLE: 'ROOM_NOT_ACCESSIBLE',
+      FACE_NOT_AIR_REACHABLE: 'ROOM_NO_AIR_PATH',
+      FACE_NO_DIRECT_LIGHT: 'ROOM_NO_DIRECT_DAYLIGHT',
+    }[issue.code];
+    if (!mappedCode) continue;
+    issues.push(
+      createValidationIssue(
+        mappedCode,
+        issue.entity?.type ?? 'building',
+        issue.entity?.id,
+      ),
+    );
+  }
+
   return issues;
+}
+
+function sameRelations(
+  submitted: BuildingDocument['relations'],
+  derived: BuildingDocument['relations'],
+): boolean {
+  const canonicalize = (relations: BuildingDocument['relations']) =>
+    relations.map((relation) => JSON.stringify(relation)).sort();
+  return (
+    JSON.stringify(canonicalize(submitted)) ===
+    JSON.stringify(canonicalize(derived))
+  );
 }
 
 function validateGeometry(document: BuildingDocument): ValidationIssue[] {
@@ -313,15 +419,55 @@ function validateGeometry(document: BuildingDocument): ValidationIssue[] {
 function validateTopology(document: BuildingDocument): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
+  for (const [wallId, wall] of Object.entries(document.walls)) {
+    if (
+      !document.vertices[wall.start_vertex_id] ||
+      !document.vertices[wall.end_vertex_id]
+    ) {
+      issues.push(createValidationIssue('WALL_VERTEX_MISSING', 'wall', wallId));
+    }
+  }
+
   // 未闭合面
   for (const [faceId, face] of Object.entries(document.faces)) {
     if (face.boundary_vertex_ids.length < 3) {
       issues.push(createValidationIssue('FACE_NOT_CLOSED', 'face', faceId));
     }
-    const first = face.boundary_vertex_ids[0];
-    const last = face.boundary_vertex_ids[face.boundary_vertex_ids.length - 1];
-    if (first && last && first !== last) {
-      issues.push(createValidationIssue('FACE_NOT_CLOSED', 'face', faceId));
+    if (face.boundary_vertex_ids.some((id) => !document.vertices[id])) {
+      issues.push(createValidationIssue('FACE_VERTEX_MISSING', 'face', faceId));
+    }
+  }
+
+  for (const [regionId, region] of Object.entries(document.outside_regions)) {
+    if (region.boundary_vertex_ids.some((id) => !document.vertices[id])) {
+      issues.push(
+        createValidationIssue(
+          'OUTSIDE_REGION_VERTEX_MISSING',
+          'outside_region',
+          regionId,
+        ),
+      );
+    }
+  }
+
+  for (const floor of document.floors) {
+    if (floor.wall_ids.some((id) => !document.walls[id])) {
+      issues.push(
+        createValidationIssue(
+          'FLOOR_WALL_MISSING',
+          'building',
+          floor.floor_id,
+        ),
+      );
+    }
+    if (floor.face_ids.some((id) => !document.faces[id])) {
+      issues.push(
+        createValidationIssue(
+          'FLOOR_FACE_MISSING',
+          'building',
+          floor.floor_id,
+        ),
+      );
     }
   }
 
@@ -335,6 +481,58 @@ function validateTopology(document: BuildingDocument): ValidationIssue[] {
           elementId,
         ),
       );
+    }
+  }
+
+  for (const relation of document.relations) {
+    const targetMissing =
+      relation.to.kind === 'face' && !document.faces[relation.to.face_id];
+    if (
+      !document.faces[relation.from_face_id] ||
+      targetMissing ||
+      !document.wall_elements[relation.wall_element_id]
+    ) {
+      issues.push(
+        createValidationIssue(
+          'RELATION_REFERENCE_MISSING',
+          'wall_element',
+          relation.wall_element_id,
+        ),
+      );
+    }
+  }
+
+  const walls = Object.entries(document.walls);
+  for (let left = 0; left < walls.length; left += 1) {
+    const [leftId, leftWall] = walls[left];
+    const leftStart = document.vertices[leftWall.start_vertex_id];
+    const leftEnd = document.vertices[leftWall.end_vertex_id];
+    if (!leftStart || !leftEnd) continue;
+    for (let right = left + 1; right < walls.length; right += 1) {
+      const [rightId, rightWall] = walls[right];
+      const rightStart = document.vertices[rightWall.start_vertex_id];
+      const rightEnd = document.vertices[rightWall.end_vertex_id];
+      if (!rightStart || !rightEnd) continue;
+      const intersection = intersectSegments(
+        leftStart,
+        leftEnd,
+        rightStart,
+        rightEnd,
+      );
+      const unsplitPoint =
+        intersection.kind === 'point' &&
+        ((intersection.tA > 0 && intersection.tA < 1) ||
+          (intersection.tB > 0 && intersection.tB < 1));
+      if (intersection.kind === 'overlap' || unsplitPoint) {
+        issues.push(
+          createValidationIssue(
+            'WALL_INTERSECTION_INVALID',
+            'wall',
+            leftId,
+            { other_wall_id: rightId },
+          ),
+        );
+      }
     }
   }
 

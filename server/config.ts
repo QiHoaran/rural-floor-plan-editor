@@ -13,7 +13,7 @@ export function createServerConfig(
 ): ServerConfig {
   return {
     projectRoot,
-    dataRoot: path.resolve(projectRoot, 'data'),
+    dataRoot: path.resolve(projectRoot, env.RURAL_DATA_ROOT ?? 'data'),
     port: Number(env.PORT ?? 4173),
     development: env.NODE_ENV !== 'production',
   };

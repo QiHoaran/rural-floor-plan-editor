@@ -10,13 +10,13 @@
 // 6. 导出正式数据前
 // ============================================================
 
-import Ajv, { type ErrorObject } from 'ajv';
+import { Ajv, type ErrorObject, type ValidateFunction } from 'ajv';
 import type { BuildingDocument } from '../buildingTypes.ts';
 
 // 浏览器端：通过 Vite raw import 加载 schema JSON
 // 服务端：通过 fs 或直接 import JSON
 let cachedSchema: object | null = null;
-let cachedValidator: ReturnType<Ajv['compile']> | null = null;
+let cachedValidator: ValidateFunction | null = null;
 
 export interface SchemaValidationError {
   path: string;
@@ -45,7 +45,7 @@ function toStructuredError(e: ErrorObject): SchemaValidationError {
 /**
  * 加载并编译 schema 校验器
  */
-function getValidator(): ReturnType<Ajv['compile']> {
+function getValidator(): ValidateFunction {
   if (cachedValidator) return cachedValidator;
 
   if (!cachedSchema) {
@@ -64,8 +64,9 @@ function getValidator(): ReturnType<Ajv['compile']> {
     },
   });
 
-  cachedValidator = ajv.compile(cachedSchema);
-  return cachedValidator;
+  const validator = ajv.compile(cachedSchema);
+  cachedValidator = validator;
+  return validator;
 }
 
 /**

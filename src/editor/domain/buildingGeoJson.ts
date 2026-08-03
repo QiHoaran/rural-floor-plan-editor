@@ -68,10 +68,11 @@ export function exportBuildingToGeoJson(
   // 房间 → Polygon
   for (const [faceId, face] of Object.entries(document.faces)) {
     if (face.boundary_vertex_ids.length < 3) continue;
-    const coords = face.boundary_vertex_ids.map((vid) => {
-      const v = verts[vid];
-      return v ? [v.x_mm, v.y_mm] : [0, 0];
-    });
+    const coords = polygonRing(
+      face.boundary_vertex_ids,
+      verts,
+      `faces.${faceId}.boundary_vertex_ids`,
+    );
 
     features.push({
       type: 'Feature',
@@ -96,10 +97,11 @@ export function exportBuildingToGeoJson(
   // 院落 → Polygon
   for (const [regionId, region] of Object.entries(document.outside_regions)) {
     if (region.boundary_vertex_ids.length < 3) continue;
-    const coords = region.boundary_vertex_ids.map((vid) => {
-      const v = verts[vid];
-      return v ? [v.x_mm, v.y_mm] : [0, 0];
-    });
+    const coords = polygonRing(
+      region.boundary_vertex_ids,
+      verts,
+      `outside_regions.${regionId}.boundary_vertex_ids`,
+    );
 
     features.push({
       type: 'Feature',
@@ -166,4 +168,24 @@ export function exportBuildingToGeoJson(
     },
     features,
   };
+}
+
+function polygonRing(
+  vertexIds: string[],
+  vertices: BuildingDocument['vertices'],
+  fieldPath: string,
+): number[][] {
+  const coordinates = vertexIds.map((vertexId) => {
+    const vertex = vertices[vertexId];
+    if (!vertex) {
+      throw new Error(`${fieldPath} references missing vertex "${vertexId}"`);
+    }
+    return [vertex.x_mm, vertex.y_mm];
+  });
+  const first = coordinates[0];
+  const last = coordinates[coordinates.length - 1];
+  if (first && last && (first[0] !== last[0] || first[1] !== last[1])) {
+    coordinates.push([...first]);
+  }
+  return coordinates;
 }

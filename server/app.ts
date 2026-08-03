@@ -39,12 +39,16 @@ export async function createApp(config: ServerConfig): Promise<Express> {
     _next,
   ) => {
     if (error instanceof ServiceError) {
-      response.status(error.status).json({
+      const body: Record<string, unknown> = {
         error: {
           code: error.code,
           message: error.message,
         },
-      });
+      };
+      if (error.details !== undefined) {
+        (body.error as Record<string, unknown>).details = error.details;
+      }
+      response.status(error.status).json(body);
       return;
     }
 

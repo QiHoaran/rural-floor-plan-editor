@@ -13,12 +13,11 @@ import { DataQualityPanel } from '@/editor/panels/DataQualityPanel.tsx';
 import { RoomLabelPanel } from '@/editor/panels/RoomLabelPanel.tsx';
 import { StatusBar } from '@/editor/panels/StatusBar.tsx';
 import {
-  exportProjectUrl,
+  exportProject,
   submitReview,
   reviewProject,
   completeProject,
   reopenProject,
-  autosaveProject,
   ApiError,
 } from '@/api/projectApi.ts';
 import { getNextUnlabeledFaceId } from '@/editor/domain/buildingStatistics.ts';
@@ -54,6 +53,7 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
   const [showExportOptions, setShowExportOptions] = useState(false);
   const [rightPanel, setRightPanel] = useState<'property' | 'quality' | 'label'>('property');
   const [workflowError, setWorkflowError] = useState<string | null>(null);
+  const [deliveryBusy, setDeliveryBusy] = useState(false);
 
   useServerAutoSave({
     buildingId: buildingDocument?.building_id ?? null,
@@ -150,66 +150,40 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
     buildingDocument.metadata?.status ??
     'draft';
 
-  /**
-   * 在执行工作流操作前，强制保存当前文档。
-   * 返回保存后的文档（服务器最新版本），失败返回 null。
-   */
-  const forceSaveBeforeWorkflow = async (): Promise<typeof buildingDocument | null> => {
-    const state = useEditorStore.getState();
-    const currentDoc = state.buildingDocument;
-    if (!currentDoc) return null;
-
-    const currentStatus = state.buildingSaveStatus;
-    if (currentStatus === 'saved') {
-      return currentDoc;
-    }
-
-    // 有未保存的更改，强制立即保存
-    beginSave();
-    try {
-      const saved = await autosaveProject(currentDoc.building_id, currentDoc);
-      finishSave(saved);
-      return saved;
-    } catch (err) {
-      failSave(
-        err instanceof Error ? err.message : '保存失败，无法执行工作流操作',
-      );
-      setWorkflowError(
-        err instanceof Error
-          ? `保存失败: ${err.message}`
-          : '保存失败，请重试后再执行审核操作',
-      );
-      return null;
-    }
-  };
-
   const handleSubmitReview = async () => {
+    if (deliveryBusy) return;
+    setDeliveryBusy(true);
     try {
-      const savedDoc = await forceSaveBeforeWorkflow();
-      if (!savedDoc) return;
-
-      const doc = await submitReview(buildingDocument.building_id);
+      const current = useEditorStore.getState().buildingDocument;
+      if (!current) return;
+      const doc = await submitReview(current.building_id, current);
       useEditorStore.getState().loadBuilding(doc);
       setWorkflowError(null);
     } catch (err) {
       setWorkflowError(err instanceof Error ? err.message : '提交审核失败');
+    } finally {
+      setDeliveryBusy(false);
     }
   };
 
   const handleReview = async () => {
+    if (deliveryBusy) return;
+    setDeliveryBusy(true);
     try {
-      const savedDoc = await forceSaveBeforeWorkflow();
-      if (!savedDoc) return;
-
-      const doc = await reviewProject(buildingDocument.building_id);
+      const current = useEditorStore.getState().buildingDocument;
+      if (!current) return;
+      const doc = await reviewProject(current.building_id, current);
       useEditorStore.getState().loadBuilding(doc);
       setWorkflowError(null);
     } catch (err) {
       setWorkflowError(err instanceof Error ? err.message : '审核操作失败');
+    } finally {
+      setDeliveryBusy(false);
     }
   };
 
   const handleComplete = async () => {
+    if (deliveryBusy) return;
     if (
       !confirm(
         '确认完成此项目？完成后项目将变为只读，需要重新打开才能编辑。',
@@ -217,12 +191,17 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
     ) {
       return;
     }
+    setDeliveryBusy(true);
     try {
-      const doc = await completeProject(buildingDocument.building_id);
+      const current = useEditorStore.getState().buildingDocument;
+      if (!current) return;
+      const doc = await completeProject(current.building_id, current);
       useEditorStore.getState().loadBuilding(doc);
       setWorkflowError(null);
     } catch (err) {
       setWorkflowError(err instanceof Error ? err.message : '无法完成项目');
+    } finally {
+      setDeliveryBusy(false);
     }
   };
 
@@ -234,6 +213,29 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
       setWorkflowError(null);
     } catch (err) {
       setWorkflowError(err instanceof Error ? err.message : '重新打开失败');
+    }
+  };
+
+  const handleExport = async () => {
+    if (deliveryBusy) return;
+    const current = useEditorStore.getState().buildingDocument;
+    if (!current) return;
+    setDeliveryBusy(true);
+    beginSave();
+    try {
+      const result = await exportProject(current.building_id, current, {
+        scale: exportScale,
+        scaleBar: exportScaleBar,
+      });
+      finishSave(result.document);
+      downloadBlob(result.blob, `${current.building_id}.zip`);
+      setWorkflowError(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '导出失败';
+      failSave(message);
+      setWorkflowError(message);
+    } finally {
+      setDeliveryBusy(false);
     }
   };
 
@@ -262,7 +264,7 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
             <button
               className={styles.headerBtnSecondary}
               onClick={handleSubmitReview}
-              disabled={isReadOnly}
+              disabled={isReadOnly || deliveryBusy}
             >
               📋 提交审核
             </button>
@@ -272,6 +274,7 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
               <button
                 className={styles.headerBtnSecondary}
                 onClick={() => handleReview()}
+                disabled={deliveryBusy}
               >
                 ✅ 审核通过
               </button>
@@ -281,6 +284,7 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
             <button
               className={styles.headerBtn}
               onClick={handleComplete}
+              disabled={deliveryBusy}
             >
               🔒 完成项目
             </button>
@@ -289,6 +293,7 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
             <button
               className={styles.headerBtnSecondary}
               onClick={handleReopen}
+              disabled={deliveryBusy}
             >
               🔓 重新打开
             </button>
@@ -314,18 +319,15 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
 
           {/* 导出 */}
           <div className={styles.exportGroup}>
-            <a
+            <button
               className={styles.headerBtnSecondary}
-              href={exportProjectUrl(buildingDocument.building_id, {
-                scale: exportScale,
-                scaleBar: exportScaleBar,
-              })}
-              download
+              onClick={handleExport}
+              disabled={deliveryBusy}
               aria-label="导出建筑包"
-              title="导出 ZIP（含 PNG 平面图）"
+              title="导出完整研究数据包"
             >
-              ⤓ 导出
-            </a>
+              {deliveryBusy ? '导出中…' : '⤓ 导出'}
+            </button>
             <button
               className={styles.headerBtnSecondary}
               onClick={() => setShowExportOptions((v) => !v)}
@@ -450,4 +452,13 @@ function jumpToPrev(doc: NonNullable<ReturnType<typeof useEditorStore.getState>[
       return;
     }
   }
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }

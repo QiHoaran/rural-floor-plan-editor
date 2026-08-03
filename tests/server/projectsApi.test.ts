@@ -62,9 +62,10 @@ describe('projects API', () => {
 
     const saved = await request(app)
       .put('/api/projects/house_0001/autosave')
-      .send(created.body)
+      .send({ ...created.body, _clientRevision: 0 })
       .expect(200);
     expect(saved.body.metadata.revision).toBe(1);
+    expect(saved.body).not.toHaveProperty('_clientRevision');
   });
 
   it('returns a structured conflict for duplicate IDs', async () => {
@@ -113,4 +114,80 @@ describe('projects API', () => {
       .expect(400);
     expect(pathError.body.error.code).toBe('INVALID_BUILDING_ID');
   });
+
+  it('accepts atomic workflow commands and POST export with a revision header', async () => {
+    const app = await createApp(config);
+    const created = await request(app)
+      .post('/api/projects')
+      .send({
+        building_id: 'house_0001',
+        image_name: 'sketch.png',
+        image_mime: 'image/png',
+        image_base64: Buffer.from('png-data').toString('base64'),
+        width_px: 640,
+        height_px: 480,
+      })
+      .expect(201);
+    const ready = {
+      ...created.body,
+      metadata: {
+        ...created.body.metadata,
+        village_code: 'village_1',
+      },
+      site: {
+        north_angle_deg: 0,
+        location_name: 'Village',
+      },
+      reference_calibration: {
+        calibrated: true,
+        point_a_image: { x: 0, y: 0 },
+        point_b_image: { x: 100, y: 0 },
+        real_distance_mm: 1000,
+        mm_per_image_pixel: 10,
+        calibrated_at: '2026-07-28T00:00:00.000Z',
+      },
+    };
+
+    const pending = await request(app)
+      .post('/api/projects/house_0001/submit-review')
+      .send({ document: ready, client_revision: 0 })
+      .expect(200);
+    const reviewed = await request(app)
+      .post('/api/projects/house_0001/review')
+      .send({
+        document: pending.body,
+        client_revision: 1,
+        reviewer: 'reviewer',
+      })
+      .expect(200);
+    const completed = await request(app)
+      .post('/api/projects/house_0001/complete')
+      .send({ document: reviewed.body, client_revision: 2 })
+      .expect(200);
+
+    const exported = await request(app)
+      .post('/api/projects/house_0001/export')
+      .send({
+        document: completed.body,
+        client_revision: 3,
+        options: { scale: '1:200', scale_bar: true },
+      })
+      .buffer(true)
+      .parse(binaryParser)
+      .expect(200)
+      .expect('content-type', /application\/zip/);
+
+    expect(exported.headers['x-building-revision']).toBe('3');
+    expect(exported.body.includes(Buffer.from('spatial_graph.json'))).toBe(true);
+  });
 });
+
+function binaryParser(
+  response: NodeJS.ReadableStream,
+  callback: (error: Error | null, body?: Buffer) => void,
+): void {
+  const chunks: Buffer[] = [];
+  response.on('data', (chunk: Buffer) => chunks.push(chunk));
+  response.on('end', () => callback(null, Buffer.concat(chunks)));
+  response.on('error', (error: Error) => callback(error));
+}

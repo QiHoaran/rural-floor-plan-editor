@@ -5,8 +5,8 @@
 
 import type {
   BuildingDocument,
-  EditorEntityType,
 } from '../domain/buildingTypes.ts';
+import type { EditorEntityType } from '../store/editorStore.ts';
 import { recomputeGeometry } from '../domain/recomputeGeometry.ts';
 
 export type DeleteEntityErrorCode =

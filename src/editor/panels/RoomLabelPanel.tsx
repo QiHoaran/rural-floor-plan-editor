@@ -33,11 +33,10 @@ export function RoomLabelPanel() {
   const multiFaces = useMemo(() => {
     if (!document) return [];
     return multiSelection
-    return multiSelection
       .filter((s) => s.type === 'face')
       .map((s) => ({ id: s.id, face: document.faces[s.id] }))
       .filter((f) => f.face);
-  }, [multiSelection, document.faces]);
+  }, [multiSelection, document]);
 
   // 标注刷模式
   const isBrushMode = tool === 'room_label_brush';

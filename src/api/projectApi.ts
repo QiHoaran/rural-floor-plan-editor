@@ -104,15 +104,19 @@ export function autosaveProject(
 
 // ---- v2.1.0: 工作流 ----
 
-export function submitReview(buildingId: string): Promise<BuildingDocument> {
+export function submitReview(
+  buildingId: string,
+  document: BuildingDocument,
+): Promise<BuildingDocument> {
   return requestJson(
     `/api/projects/${encodeURIComponent(buildingId)}/submit-review`,
-    { method: 'POST' },
+    commandRequest(document),
   );
 }
 
 export function reviewProject(
   buildingId: string,
+  document: BuildingDocument,
   reviewer?: string,
 ): Promise<BuildingDocument> {
   return requestJson(
@@ -120,17 +124,22 @@ export function reviewProject(
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: reviewer ? JSON.stringify({ reviewer }) : undefined,
+      body: JSON.stringify({
+        document,
+        client_revision: document.metadata.revision,
+        ...(reviewer ? { reviewer } : {}),
+      }),
     },
   );
 }
 
 export function completeProject(
   buildingId: string,
+  document: BuildingDocument,
 ): Promise<BuildingDocument> {
   return requestJson(
     `/api/projects/${encodeURIComponent(buildingId)}/complete`,
-    { method: 'POST' },
+    commandRequest(document),
   );
 }
 
@@ -214,6 +223,47 @@ export function exportProjectUrl(
   return qs ? `${url}?${qs}` : url;
 }
 
+export interface ExportProjectResult {
+  blob: Blob;
+  revision: number;
+  document: BuildingDocument;
+}
+
+export async function exportProject(
+  buildingId: string,
+  document: BuildingDocument,
+  options: ExportUrlOptions,
+): Promise<ExportProjectResult> {
+  const response = await fetch(
+    `/api/projects/${encodeURIComponent(buildingId)}/export`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        document,
+        client_revision: document.metadata.revision,
+        options: {
+          scale: options.scale,
+          scale_bar: options.scaleBar === true,
+        },
+      }),
+    },
+  );
+  if (!response.ok) {
+    await throwResponseError(response);
+  }
+  const revision = Number(response.headers.get('x-building-revision'));
+  const blob = await response.blob();
+  const opened = await openProject(buildingId);
+  return {
+    blob,
+    revision: Number.isInteger(revision)
+      ? revision
+      : opened.document.metadata.revision,
+    document: opened.document,
+  };
+}
+
 // ---- HTTP 工具 ----
 
 async function requestJson<T>(
@@ -236,4 +286,32 @@ async function requestJson<T>(
     );
   }
   return body as T;
+}
+
+function commandRequest(document: BuildingDocument): RequestInit {
+  return {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      document,
+      client_revision: document.metadata.revision,
+    }),
+  };
+}
+
+async function throwResponseError(response: Response): Promise<never> {
+  let error: { code?: string; message?: string } | undefined;
+  try {
+    const body = (await response.json()) as {
+      error?: { code?: string; message?: string };
+    };
+    error = body.error;
+  } catch {
+    // Binary or empty error responses use the generic status message.
+  }
+  throw new ApiError(
+    error?.message ?? `璇锋眰澶辫触 (${response.status})`,
+    response.status,
+    error?.code ?? 'REQUEST_FAILED',
+  );
 }

@@ -11,7 +11,7 @@ import type { PlanDocument, Wall, Opening } from './planTypes.ts';
 import { generateId } from './ids.ts';
 import { projectPointToSegment, segmentIntersection } from './geometry.ts';
 import { SNAP_TOLERANCE } from './constants.ts';
-import { splitWallAtPoint, crossIntersection } from './wallTopology.ts';
+import { splitWallAtPoint } from './wallTopology.ts';
 
 export interface TopologyActionResult {
   /** 需要添加到文档的新顶点 */
@@ -141,11 +141,6 @@ export function processNewWallTopology(
         });
       }
 
-      // 注意：新墙的终点应该连接到拆分顶点
-      if (result.newWalls.length > 0) {
-        // 更新新墙的终点到拆分顶点（已经拆分了已有墙）
-        const newWallEntry = result.newWalls[result.newWalls.length - 1];
-      }
     }
   }
 

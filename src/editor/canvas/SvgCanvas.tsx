@@ -78,6 +78,9 @@ export function SvgCanvas() {
     originalPoint: BuildingVertex;
     currentPoint: BuildingVertex;
   } | null>(null);
+  const commitCommandRef = useRef<(current: WallCommandState) => void>(
+    () => undefined,
+  );
   const [vertexDragPreview, setVertexDragPreview] =
     useState<BuildingVertex | null>(null);
 
@@ -282,7 +285,7 @@ export function SvgCanvas() {
       }
       if (event.key === 'Enter' && command.phase === 'drawing') {
         event.preventDefault();
-        commitCommand(command);
+        commitCommandRef.current(command);
       }
     };
     const handleKeyUp = (event: KeyboardEvent) => {
@@ -310,7 +313,15 @@ export function SvgCanvas() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [command, document, redo, tool, undo]);
+  }, [
+    command,
+    document,
+    redo,
+    setSelection,
+    tool,
+    transact,
+    undo,
+  ]);
 
   if (!document) {
     return <div className={styles.container}>未加载建筑文档</div>;
@@ -400,6 +411,7 @@ export function SvgCanvas() {
     setCommand(result.state);
     setCommandError(result.error);
   };
+  commitCommandRef.current = commitCommand;
 
   const handleStartVertexDrag = (
     vertexId: string,
@@ -604,8 +616,10 @@ export function SvgCanvas() {
       const latestDocument =
         useEditorStore.getState().buildingDocument;
       if (
-        vertexState.currentPoint.x_mm !== vertexState.originalPoint.x_mm ||
-        vertexState.currentPoint.y_mm !== vertexState.originalPoint.y_mm
+        latestDocument &&
+        (vertexState.currentPoint.x_mm !== vertexState.originalPoint.x_mm ||
+          vertexState.currentPoint.y_mm !== vertexState.originalPoint.y_mm
+        )
       ) {
         const result = moveVertex(
           latestDocument,

@@ -292,9 +292,10 @@ function migrateFromPlanDocument(
       },
     ],
     vertices: vertices as BuildingDocument['vertices'],
-    walls: walls as BuildingDocument['walls'],
-    wall_elements: wallElements as BuildingDocument['wall_elements'],
-    faces: faces as BuildingDocument['faces'],
+    walls: walls as unknown as BuildingDocument['walls'],
+    wall_elements:
+      wallElements as unknown as BuildingDocument['wall_elements'],
+    faces: faces as unknown as BuildingDocument['faces'],
     outside_regions: {},
     relations: [],
     validation: { issues: [] },

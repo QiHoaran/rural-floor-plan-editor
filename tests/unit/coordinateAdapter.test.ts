@@ -6,23 +6,12 @@ import { describe, it, expect } from 'vitest';
 import {
   domainXYToLatLng,
   latLngToDomainXY,
-  leafletLatLngToDomainXY,
   imagePixelToDomainXY,
   domainXYToImagePixel,
   roundToPrecision,
   distanceBetweenPoints_cm,
   angleBetweenPoints_deg,
 } from '@/editor/leaflet/coordinateAdapter.ts';
-
-// Leaflet的LatLng在测试环境可能不可用，用模拟替代
-class MockLatLng {
-  lat: number;
-  lng: number;
-  constructor(lat: number, lng: number) {
-    this.lat = lat;
-    this.lng = lng;
-  }
-}
 
 describe('坐标转换 - 领域坐标 <=> Leaflet坐标', () => {
   it('domainXYToLatLng 将领域 [x, y] 转为 Leaflet [lat, lng]', () => {

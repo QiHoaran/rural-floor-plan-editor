@@ -12,7 +12,7 @@ export function useAutoSave() {
   const isSavingRef = useRef(false);
 
   useEffect(() => {
-    const unsubscribe = usePlanStore.subscribe((state, prevState) => {
+    const unsubscribe = usePlanStore.subscribe((state) => {
       // 只在 unsaved 状态时触发自动保存
       if (state.saveStatus !== 'unsaved') return;
 
