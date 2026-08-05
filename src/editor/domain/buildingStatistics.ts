@@ -20,7 +20,7 @@ export function computeBuildingStatistics(
   const allIssues = [
     ...validationIssues.map((i) => ({ severity: i.level, code: i.code })),
     ...structuredIssues.map((i) => ({ severity: i.severity, code: i.code })),
-  ];
+  ].filter((issue) => issue.code !== 'REFERENCE_SCALE_MISSING');
 
   const validation_error_count = allIssues.filter(
     (i) => i.severity === 'error',
@@ -61,11 +61,10 @@ export function computeBuildingStatistics(
  * 几何完成度计算
  *
  * 规则：
- * - 存在墙体 (20%)
- * - 存在房间面 (20%)
- * - 无零长度墙 (20%)
- * - 比例标定完成 (20%)
- * - 所有区域已闭合 (20%)
+ * - 存在墙体 (25%)
+ * - 存在房间面 (25%)
+ * - 无零长度墙 (25%)
+ * - 所有区域已闭合 (25%)
  */
 function computeGeometryProgress(
   document: BuildingDocument,
@@ -74,9 +73,9 @@ function computeGeometryProgress(
 ): number {
   let progress = 0;
 
-  if (walls.length > 0) progress += 20;
+  if (walls.length > 0) progress += 25;
 
-  if (faces.length > 0) progress += 20;
+  if (faces.length > 0) progress += 25;
 
   const hasZeroLength = walls.some((w) => {
     const s = document.vertices[w.start_vertex_id];
@@ -84,18 +83,14 @@ function computeGeometryProgress(
     if (!s || !e) return true;
     return s.x_mm === e.x_mm && s.y_mm === e.y_mm;
   });
-  if (!hasZeroLength) progress += 20;
-
-  if (document.reference_calibration?.calibrated) {
-    progress += 20;
-  }
+  if (!hasZeroLength) progress += 25;
 
   // 检查是否有未闭合区域（通过拓扑匹配质量判断）
   const closedFaces = faces.filter((f) => f.boundary_vertex_ids.length >= 3);
   if (closedFaces.length > 0 && closedFaces.length === faces.length) {
-    progress += 20;
+    progress += 25;
   } else if (closedFaces.length > 0) {
-    progress += 10;
+    progress += 12.5;
   }
 
   return Math.min(100, progress);

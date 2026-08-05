@@ -25,7 +25,6 @@ const TOOL_LABELS: Record<EditorTool, string> = {
   passage: '无门洞',
   room_label_brush: '房间标注刷',
   reference_calibration: '比例标定',
-  north_orientation: '设置北向',
 };
 
 const SNAP_LABELS: Record<Exclude<SnapResult['kind'], 'none'>, string> = {

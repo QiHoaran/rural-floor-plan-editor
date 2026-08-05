@@ -12,8 +12,15 @@
 // 8. 不静默丢弃无法转换的数据
 // ============================================================
 
-import { CURRENT_SCHEMA_VERSION } from '../constants.ts';
+import {
+  CURRENT_SCHEMA_VERSION,
+  DEFAULT_NORTH_ANGLE_DEG,
+} from '../constants.ts';
 import type { BuildingDocument } from '../buildingTypes.ts';
+import {
+  normalizeSurveyForStorage,
+  synchronizeClearHeight,
+} from '../surveyData.ts';
 
 export interface MigrationResult {
   document: BuildingDocument;
@@ -102,7 +109,7 @@ function migrateFrom2_0_0(
   }
 
   if (!doc.site) {
-    doc.site = { north_angle_deg: 0 };
+    doc.site = { north_angle_deg: DEFAULT_NORTH_ANGLE_DEG };
   }
 
   if (!doc.workflow) {
@@ -255,7 +262,8 @@ function migrateFromPlanDocument(
       status: 'draft',
     },
     site: {
-      north_angle_deg: typeof northAngle === 'number' ? northAngle : 0,
+      north_angle_deg:
+        typeof northAngle === 'number' ? northAngle : DEFAULT_NORTH_ANGLE_DEG,
     },
     workflow: {
       status: 'draft',
@@ -333,12 +341,22 @@ function ensureModernFields(
 
   if (!result.site) {
     warnings.push('缺少 site，使用默认北向 0°。');
-    result.site = { north_angle_deg: 0 };
+    result.site = { north_angle_deg: DEFAULT_NORTH_ANGLE_DEG };
   }
 
   if (!result.workflow) {
     warnings.push('缺少 workflow，使用默认状态 draft。');
     result.workflow = { status: 'draft' };
+  }
+
+  if (result.survey) {
+    const normalized = normalizeSurveyForStorage(
+      result.survey as unknown as Record<string, unknown>,
+    );
+    if (JSON.stringify(normalized) !== JSON.stringify(result.survey)) {
+      warnings.push('已将住户调查属性的数字枚举转换为中文标签。');
+      result.survey = normalized;
+    }
   }
 
   if (result.schema_version !== CURRENT_SCHEMA_VERSION) {
@@ -369,7 +387,17 @@ function ensureModernFields(
     };
   }
 
-  return result;
+  const synchronized = synchronizeClearHeight(result);
+  if (synchronized !== result) {
+    const height = synchronized.survey?.clear_height_mm;
+    const wasInconsistent =
+      result.building_defaults.wall_height_mm !== height ||
+      Object.values(result.walls).some((wall) => wall.height_mm !== height);
+    if (wasInconsistent) {
+      warnings.push('已按建筑净高同步默认墙高和全部墙体高度。');
+    }
+  }
+  return synchronized;
 }
 
 function mapStatus(status: string | undefined): BuildingDocument['metadata']['status'] {

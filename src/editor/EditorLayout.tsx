@@ -18,6 +18,7 @@ import {
   reviewProject,
   completeProject,
   reopenProject,
+  openProjectFolder,
   ApiError,
 } from '@/api/projectApi.ts';
 import { getNextUnlabeledFaceId } from '@/editor/domain/buildingStatistics.ts';
@@ -54,6 +55,7 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
   const [rightPanel, setRightPanel] = useState<'property' | 'quality' | 'label'>('property');
   const [workflowError, setWorkflowError] = useState<string | null>(null);
   const [deliveryBusy, setDeliveryBusy] = useState(false);
+  const [folderBusy, setFolderBusy] = useState(false);
 
   useServerAutoSave({
     buildingId: buildingDocument?.building_id ?? null,
@@ -241,6 +243,19 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
 
   const isReadOnly = workflowStatus === 'complete';
 
+  const handleOpenFolder = async () => {
+    if (folderBusy) return;
+    setFolderBusy(true);
+    try {
+      await openProjectFolder(buildingDocument.building_id);
+      setWorkflowError(null);
+    } catch (err) {
+      setWorkflowError(err instanceof Error ? err.message : '无法打开建筑文件夹');
+    } finally {
+      setFolderBusy(false);
+    }
+  };
+
   return (
     <div className={styles.container}>
       {/* 顶部工具栏 */}
@@ -257,6 +272,14 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
         <span className={styles.projectId}>
           {buildingDocument.building_id}
         </span>
+        <button
+          className={styles.headerBtnSecondary}
+          onClick={handleOpenFolder}
+          disabled={folderBusy}
+          title="在系统文件管理器中打开当前建筑目录"
+        >
+          {folderBusy ? '正在打开…' : '📁 打开文件夹'}
+        </button>
 
         {/* 工作流按钮 */}
         <div className={styles.workflowGroup}>

@@ -54,6 +54,11 @@ import {
   type SnapResult,
 } from '@/editor/cad/snapEngine.ts';
 import styles from './SvgCanvas.module.css';
+import { ROOM_FUNCTION_DICTIONARY } from '@/editor/domain/constants.ts';
+import {
+  CORE_ROOM_FUNCTION_PRESETS,
+  mergeRoomFunctionTypes,
+} from '@/editor/domain/roomFunctionTemplates.ts';
 
 const DEFAULT_SIZE: CanvasSize = { width: 800, height: 600 };
 
@@ -92,6 +97,7 @@ export function SvgCanvas() {
 
   const document = useEditorStore((state) => state.buildingDocument);
   const tool = useEditorStore((state) => state.tool);
+  const brushFunctionCode = useEditorStore((state) => state.brushFunctionCode);
   const selection = useEditorStore((state) => state.selection);
   const snapMode = useEditorStore((state) => state.snapMode);
   const directionMode = useEditorStore((state) => state.directionMode);
@@ -731,13 +737,36 @@ export function SvgCanvas() {
             selectedFaceId={
               selection?.type === 'face' ? selection.id : null
             }
-            selectable={tool === 'select'}
+            selectable={tool === 'select' || tool === 'room_label_brush'}
             shouldConsumePointerDown={(event) =>
               event.button === 0 && !spacePressed.current
             }
             onSelectFace={(faceId) => {
               if (tool === 'select') {
                 setSelection({ type: 'face', id: faceId });
+              } else if (tool === 'room_label_brush') {
+                const functionType = mergeRoomFunctionTypes(
+                  CORE_ROOM_FUNCTION_PRESETS,
+                  document.custom_function_types,
+                ).find((item) => item.code === brushFunctionCode);
+                if (!functionType) return;
+                const residential = ROOM_FUNCTION_DICTIONARY.find(
+                  (item) => item.code === brushFunctionCode,
+                )?.residential ?? false;
+                transact(`标注房间为 ${functionType.name}`, (current) => ({
+                  ...current,
+                  faces: {
+                    ...current.faces,
+                    [faceId]: {
+                      ...current.faces[faceId],
+                      function_code: functionType.code,
+                      display_name: functionType.name,
+                      color: functionType.color,
+                      heated: residential,
+                      occupied: residential,
+                    },
+                  },
+                }));
               }
             }}
           />

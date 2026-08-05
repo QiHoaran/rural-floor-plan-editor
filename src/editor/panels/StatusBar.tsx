@@ -6,6 +6,7 @@
 import { useMemo } from 'react';
 import { useEditorStore } from '@/editor/store/editorStore.ts';
 import { countUnlabeledFaces } from '@/editor/domain/buildingStatistics.ts';
+import { REFERENCE_DIRECTION_LABEL } from '@/editor/domain/constants.ts';
 import styles from './StatusBar.module.css';
 
 const TOOL_LABELS: Record<string, string> = {
@@ -20,7 +21,6 @@ const TOOL_LABELS: Record<string, string> = {
   adjust_reference: '参考图',
   room_label_brush: '房间标注刷',
   reference_calibration: '比例标定',
-  north_orientation: '北向设置',
 };
 
 export function StatusBar() {
@@ -51,14 +51,6 @@ export function StatusBar() {
     return '未标定';
   }, [document]);
 
-  const northStatus = useMemo(() => {
-    if (!document) return '未设';
-    if (document.site?.north_angle_deg !== undefined && document.site.north_angle_deg !== 0) {
-      return `${document.site.north_angle_deg}°`;
-    }
-    return '未设';
-  }, [document]);
-
   const multiSelection = useEditorStore((state) => state.multiSelection);
   const selectionCount = multiSelection.length > 1
     ? multiSelection.length
@@ -84,7 +76,7 @@ export function StatusBar() {
         </span>
         <span className={styles.sep} />
         <span className={styles.item}>比例: {calibrationStatus}</span>
-        <span className={styles.item}>北向: {northStatus}</span>
+        <span className={styles.item}>方向: {REFERENCE_DIRECTION_LABEL}</span>
         <span className={styles.sep} />
         {stats && (
           <>

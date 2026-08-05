@@ -22,8 +22,7 @@ export type EditorTool =
   | 'passage'
   | 'adjust_reference'
   | 'room_label_brush'
-  | 'reference_calibration'
-  | 'north_orientation';
+  | 'reference_calibration';
 
 export type EditorEntityType =
   | 'wall'

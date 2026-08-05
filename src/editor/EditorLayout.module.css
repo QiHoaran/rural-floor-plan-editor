@@ -184,6 +184,7 @@
 .body {
   display: flex;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -222,6 +223,7 @@
   flex-direction: column;
   width: 260px;
   flex-shrink: 0;
+  min-height: 0;
   border-left: 1px solid #e2e8f0;
   background: #fff;
 }
@@ -259,6 +261,7 @@
 
 .panelContent {
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 

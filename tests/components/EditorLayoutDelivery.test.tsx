@@ -10,6 +10,7 @@ vi.mock('../../src/api/projectApi.ts', async (importOriginal) => {
   return {
     ...actual,
     exportProject: vi.fn(),
+    openProjectFolder: vi.fn(),
   };
 });
 
@@ -51,6 +52,17 @@ describe('EditorLayout delivery actions', () => {
         document,
         { scale: '1:200', scaleBar: false },
       );
+    });
+  });
+
+  it('opens the current building folder from the editor header', async () => {
+    vi.mocked(projectApi.openProjectFolder).mockResolvedValue();
+    render(<EditorLayout />);
+
+    fireEvent.click(screen.getByRole('button', { name: '📁 打开文件夹' }));
+
+    await waitFor(() => {
+      expect(projectApi.openProjectFolder).toHaveBeenCalledWith('house_0001');
     });
   });
 });

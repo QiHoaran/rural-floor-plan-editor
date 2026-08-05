@@ -100,8 +100,77 @@ export interface BuildingMetadata {
   status: WorkflowStatus;
 }
 
+// ---- 住户与建筑调查属性 ----
+export type GenderValue = '男性' | '女性';
+export type FamilyStructureValue =
+  | '两人户（年轻夫妻）'
+  | '两人户（老年夫妻）'
+  | '中年夫妻 + 未婚子女'
+  | '老年夫妻 + 已婚子女'
+  | '三代户'
+  | '隔代户（老年夫妻 + 隔代儿童）'
+  | '独居';
+export type AnnualIncomeValue =
+  | '小于 10000'
+  | '10000–20000'
+  | '20001–30000'
+  | '30001–40000'
+  | '40000–50000'
+  | '50001 以上';
+export type IncomeSourceValue = '养殖' | '种田' | '果林' | '经商' | '打工' | '其他副业';
+export type ConstructionEraValue =
+  | '1950 年代'
+  | '1960 年代'
+  | '1970 年代'
+  | '1980 年代'
+  | '1990 年代'
+  | '2000 年及以后'
+  | '1940 年代'
+  | '1930 年代'
+  | '1920 年代及以前'
+  | '不确定';
+export type BuildingAreaValue =
+  | '20–30 ㎡'
+  | '30–40 ㎡'
+  | '40–50 ㎡'
+  | '50–60 ㎡'
+  | '60–70 ㎡'
+  | '70–80 ㎡'
+  | '80–90 ㎡'
+  | '90–100 ㎡'
+  | '100–110 ㎡';
+export type PlanFormValue = '一字型' | 'L 型' | 'U 型' | '回字型' | '其他';
+export type BuildingStructureValue =
+  | '土坯结构'
+  | '砖瓦结构'
+  | '砖混结构'
+  | '钢筋混凝土结构'
+  | '石结构';
+
+export interface HouseholdSurvey {
+  village_code: string;
+  household_code: string;
+  gender?: GenderValue;
+  age?: number;
+  resident_count?: number;
+  family_structure?: FamilyStructureValue;
+  annual_income?: AnnualIncomeValue;
+  primary_income_source?: IncomeSourceValue;
+  construction_era?: ConstructionEraValue;
+  building_area?: BuildingAreaValue;
+  clear_height_mm?: Millimeters;
+  plan_form?: PlanFormValue;
+  building_structure?: BuildingStructureValue;
+  main_room_bay_mm?: Millimeters;
+  main_room_width_mm?: Millimeters;
+  wing_room_bay_mm?: Millimeters;
+  wing_room_width_mm?: Millimeters;
+  bay_count?: number;
+}
+
 // ---- 场地信息 ----
 export interface BuildingSite {
+  /** 0° 表示参考图正上方为北；当前约定固定为上北下南、左西右东。 */
   north_angle_deg: number;
   location_name?: string;
   climate_zone?: string;
@@ -257,6 +326,9 @@ export interface BuildingDocument {
 
   /** v2.1.0 建筑元数据 */
   metadata: BuildingMetadata;
+
+  /** 住户与建筑调查属性，可通过单条录入或批量导入维护 */
+  survey?: HouseholdSurvey;
 
   /** v2.1.0 场地信息 */
   site: BuildingSite;

@@ -8,10 +8,12 @@ import {
   listTrashedProjects,
   trashProject,
   restoreProject,
+  downloadProjectArchive,
   type ProjectSummary,
 } from '@/api/projectApi.ts';
 import type { BuildingDocument } from '@/editor/domain/buildingTypes.ts';
 import { NewProjectDialog } from './NewProjectDialog.tsx';
+import { BulkSurveyImportDialog } from './BulkSurveyImportDialog.tsx';
 import styles from './ProjectHome.module.css';
 
 interface ProjectHomeProps {
@@ -32,6 +34,11 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
     'loading',
   );
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importMessage, setImportMessage] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchMessage, setBatchMessage] = useState('');
 
   const refresh = useCallback(() => {
     let active = true;
@@ -41,6 +48,10 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
         if (!active) return;
         setProjects(activeItems);
         setTrashed(trashedItems);
+        const activeIds = new Set(activeItems.map((item) => item.building_id));
+        setSelectedIds((current) =>
+          new Set([...current].filter((id) => activeIds.has(id))),
+        );
         setState('ready');
       })
       .catch(() => {
@@ -77,6 +88,58 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
     }
   };
 
+  const toggleSelected = (buildingId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(buildingId)) next.delete(buildingId);
+      else next.add(buildingId);
+      return next;
+    });
+  };
+
+  const handleBatchDelete = async () => {
+    const ids = [...selectedIds];
+    if (ids.length === 0 || batchBusy) return;
+    if (!confirm(`确定将选中的 ${ids.length} 栋建筑移入回收站？`)) return;
+    setBatchBusy(true);
+    setBatchMessage('');
+    const results = await Promise.allSettled(ids.map((id) => trashProject(id)));
+    const failed = ids.filter((_, index) => results[index].status === 'rejected');
+    setSelectedIds(new Set(failed));
+    setBatchMessage(
+      failed.length === 0
+        ? `已将 ${ids.length} 栋建筑移入回收站。`
+        : `已删除 ${ids.length - failed.length} 栋，${failed.length} 栋失败：${failed.join('、')}`,
+    );
+    refresh();
+    setBatchBusy(false);
+  };
+
+  const handleBatchExport = async () => {
+    const ids = [...selectedIds];
+    if (ids.length === 0 || batchBusy) return;
+    setBatchBusy(true);
+    setBatchMessage('');
+    const failed: string[] = [];
+    for (const id of ids) {
+      try {
+        const blob = await downloadProjectArchive(id, {
+          scale: '1:200',
+          scaleBar: false,
+        });
+        downloadBlob(blob, `${id}.zip`);
+      } catch {
+        failed.push(id);
+      }
+    }
+    setBatchMessage(
+      failed.length === 0
+        ? `已导出 ${ids.length} 栋建筑。`
+        : `已导出 ${ids.length - failed.length} 栋，${failed.length} 栋失败：${failed.join('、')}`,
+    );
+    setBatchBusy(false);
+  };
+
   return (
     <main className={styles.home}>
       <section className={styles.hero}>
@@ -87,16 +150,54 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
             根据参考草图绘制精确墙体结构，标注房间功能，检查数据质量，输出可用于建筑规律分析、湿热模拟和生成式平面设计的标准化数据。
           </p>
         </div>
-        <button
-          className={styles.primaryButton}
-          onClick={() => setDialogOpen(true)}
-        >
-          新建建筑
-        </button>
+        <div className={styles.heroActions}>
+          <button className={styles.secondaryButton} onClick={() => setImportDialogOpen(true)}>批量导入属性</button>
+          <button className={styles.primaryButton} onClick={() => setDialogOpen(true)}>新建建筑</button>
+        </div>
       </section>
 
+      {(importMessage || batchMessage) && (
+        <div className={styles.importMessage}>{batchMessage || importMessage}</div>
+      )}
+
       <section className={styles.projects}>
-        <h2>建筑项目</h2>
+        <div className={styles.projectHeader}>
+          <h2>建筑项目</h2>
+          {projects.length > 0 && (
+            <div className={styles.selectionActions}>
+              <span>已选 {selectedIds.size} 栋</span>
+              <button
+                type="button"
+                onClick={() => setSelectedIds(new Set(projects.map((item) => item.building_id)))}
+                disabled={batchBusy || selectedIds.size === projects.length}
+              >
+                全选
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedIds(new Set())}
+                disabled={batchBusy || selectedIds.size === 0}
+              >
+                清空
+              </button>
+              <button
+                type="button"
+                onClick={handleBatchExport}
+                disabled={batchBusy || selectedIds.size === 0}
+              >
+                批量导出
+              </button>
+              <button
+                type="button"
+                className={styles.batchDeleteButton}
+                onClick={handleBatchDelete}
+                disabled={batchBusy || selectedIds.size === 0}
+              >
+                批量删除
+              </button>
+            </div>
+          )}
+        </div>
         {state === 'loading' && <p>正在读取 data 目录…</p>}
         {state === 'error' && <p className={styles.error}>无法读取建筑项目</p>}
         {state === 'ready' && projects.length === 0 && (
@@ -104,7 +205,20 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
         )}
         <div className={styles.projectGrid}>
           {projects.map((project) => (
-            <div key={project.building_id} className={styles.projectCard}>
+            <div
+              key={project.building_id}
+              className={`${styles.projectCard} ${
+                selectedIds.has(project.building_id) ? styles.projectCardSelected : ''
+              }`}
+            >
+              <label className={styles.projectSelector}>
+                <input
+                  type="checkbox"
+                  aria-label={`选择 ${project.building_id}`}
+                  checked={selectedIds.has(project.building_id)}
+                  onChange={() => toggleSelected(project.building_id)}
+                />
+              </label>
               <button
                 className={styles.projectCardMain}
                 onClick={() => onOpen(project.building_id)}
@@ -239,6 +353,23 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
         onClose={() => setDialogOpen(false)}
         onCreated={onOpen}
       />
+      <BulkSurveyImportDialog
+        open={importDialogOpen}
+        onClose={() => setImportDialogOpen(false)}
+        onImported={(result) => {
+          setImportMessage(`导入完成：新建 ${result.created.length} 户，更新 ${result.updated.length} 户。`);
+          refresh();
+        }}
+      />
     </main>
   );
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }

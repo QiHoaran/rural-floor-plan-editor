@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { Router } from 'express';
 import type { BuildingDocument } from '../../src/editor/domain/buildingTypes.js';
+import { parseSurveyText } from '../../src/editor/domain/surveyData.js';
 import { ServiceError } from '../errors.js';
 import type { ProjectService } from '../projectService.js';
 
@@ -91,6 +92,25 @@ export function createProjectRouter(projectService: ProjectService): Router {
     response.json(await projectService.listTrashed());
   });
 
+  router.post('/surveys/bulk', async (request, response) => {
+    const records = request.body?.records;
+    if (!Array.isArray(records) || records.length === 0) {
+      throw new ServiceError('请提供至少一条调查数据', 400, 'EMPTY_SURVEY_IMPORT');
+    }
+    if (records.length > 5000) {
+      throw new ServiceError('单次最多导入 5000 条调查数据', 400, 'SURVEY_IMPORT_TOO_LARGE');
+    }
+    const parsed = parseSurveyText(JSON.stringify(records));
+    if (parsed.issues.length > 0) {
+      throw new ServiceError(
+        `调查数据校验失败：第 ${parsed.issues[0].row} 条 ${parsed.issues[0].message}`,
+        400,
+        'INVALID_SURVEY_DATA',
+      );
+    }
+    response.json(await projectService.bulkImportSurveys(parsed.records));
+  });
+
   // ---- 文件服务 ----
 
   router.get(/^\/([^/]+)\/files\/(.+)$/, (request, response) => {
@@ -103,6 +123,42 @@ export function createProjectRouter(projectService: ProjectService): Router {
 
   router.get('/:buildingId', async (request, response) => {
     response.json(await projectService.open(request.params.buildingId));
+  });
+
+  router.post('/:buildingId/open-folder', async (request, response) => {
+    if (!isLoopbackAddress(request.socket.remoteAddress)) {
+      throw new ServiceError(
+        '打开本地文件夹仅允许从本机访问',
+        403,
+        'LOCAL_REQUEST_REQUIRED',
+      );
+    }
+    await projectService.openFolder(request.params.buildingId);
+    response.status(204).end();
+  });
+
+  router.post('/:buildingId/reference', async (request, response) => {
+    const { image_name, image_mime, image_base64, width_px, height_px } = request.body ?? {};
+    if (typeof image_mime !== 'string' || !SUPPORTED_IMAGE_MIMES.has(image_mime)) {
+      throw new ServiceError('参考图片只支持 JPEG、PNG 或 WebP', 400, 'UNSUPPORTED_IMAGE');
+    }
+    if (typeof image_base64 !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(image_base64)) {
+      throw new ServiceError('参考图片数据不是有效的 Base64', 400, 'INVALID_IMAGE_DATA');
+    }
+    const bytes = Buffer.from(image_base64, 'base64');
+    if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES) {
+      throw new ServiceError('参考图片不能为空且不能超过 10 MB', 400, 'INVALID_IMAGE_SIZE');
+    }
+    response.json(await projectService.attachReferenceImage(
+      request.params.buildingId,
+      {
+        bytes,
+        extension: typeof image_name === 'string' ? path.extname(image_name).slice(1) : '',
+        mimeType: image_mime,
+        widthPx: Number(width_px),
+        heightPx: Number(height_px),
+      },
+    ));
   });
 
   // ---- v2.1.0: 带 revision 锁的自动保存 ----
@@ -256,6 +312,15 @@ export function createProjectRouter(projectService: ProjectService): Router {
   });
 
   return router;
+}
+
+export function isLoopbackAddress(address: string | undefined): boolean {
+  if (!address) return false;
+  const normalized = address.toLowerCase().split('%')[0];
+  return normalized === '::1' ||
+    normalized === '127.0.0.1' ||
+    normalized.startsWith('127.') ||
+    normalized.startsWith('::ffff:127.');
 }
 
 function commandInput(body: unknown): {

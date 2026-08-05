@@ -1,5 +1,8 @@
 import type { BuildingDocument } from './buildingTypes.ts';
-import { CURRENT_SCHEMA_VERSION } from './constants.ts';
+import {
+  CURRENT_SCHEMA_VERSION,
+  DEFAULT_NORTH_ANGLE_DEG,
+} from './constants.ts';
 
 export function createEmptyBuilding(
   buildingId: string,
@@ -32,7 +35,7 @@ export function createEmptyBuilding(
       status: 'draft',
     },
     site: {
-      north_angle_deg: 0,
+      north_angle_deg: DEFAULT_NORTH_ANGLE_DEG,
     },
     workflow: {
       status: 'draft',

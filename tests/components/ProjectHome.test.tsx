@@ -17,6 +17,7 @@ vi.mock('../../src/api/projectApi.ts', async () => {
     createProject: vi.fn(),
     trashProject: vi.fn(),
     restoreProject: vi.fn(),
+    downloadProjectArchive: vi.fn(),
   };
 });
 
@@ -26,9 +27,14 @@ vi.mock('../../src/projects/imageFile.ts', () => ({
 
 describe('ProjectHome', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(projectApi.listProjects).mockResolvedValue([]);
     vi.mocked(projectApi.listTrashedProjects).mockResolvedValue([]);
     vi.mocked(projectApi.createProject).mockReset();
+    vi.mocked(projectApi.trashProject).mockResolvedValue();
+    vi.mocked(projectApi.downloadProjectArchive).mockResolvedValue(
+      new Blob(['zip'], { type: 'application/zip' }),
+    );
     vi.mocked(imageFile.readImageFile).mockReset();
   });
 
@@ -104,4 +110,69 @@ describe('ProjectHome', () => {
     });
     expect(onOpen).toHaveBeenCalledWith('house_0002', document);
   });
+
+  it('selects cards without opening them and reports partial batch deletion', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(projectApi.listProjects).mockResolvedValue([
+      projectSummary('house_0001'),
+      projectSummary('house_0002'),
+    ]);
+    vi.mocked(projectApi.trashProject)
+      .mockResolvedValueOnce()
+      .mockRejectedValueOnce(new Error('busy'));
+    const onOpen = vi.fn();
+    render(<ProjectHome onOpen={onOpen} />);
+
+    fireEvent.click(await screen.findByLabelText('选择 house_0001'));
+    fireEvent.click(screen.getByLabelText('选择 house_0002'));
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(screen.getByText('已选 2 栋')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '批量删除' }));
+
+    await waitFor(() => {
+      expect(projectApi.trashProject).toHaveBeenCalledTimes(2);
+      expect(screen.getByText(/已删除 1 栋，1 栋失败：house_0002/)).toBeTruthy();
+    });
+  });
+
+  it('exports every selected building with the default research scale', async () => {
+    vi.mocked(projectApi.listProjects).mockResolvedValue([
+      projectSummary('house_0001'),
+      projectSummary('house_0002'),
+    ]);
+    const createObjectURL = vi.fn(() => 'blob:test');
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL });
+    render(<ProjectHome onOpen={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '全选' }));
+    fireEvent.click(screen.getByRole('button', { name: '批量导出' }));
+
+    await waitFor(() => {
+      expect(projectApi.downloadProjectArchive).toHaveBeenCalledTimes(2);
+      expect(projectApi.downloadProjectArchive).toHaveBeenCalledWith(
+        'house_0001',
+        { scale: '1:200', scaleBar: false },
+      );
+      expect(screen.getByText('已导出 2 栋建筑。')).toBeTruthy();
+    });
+  });
 });
+
+function projectSummary(buildingId: string): projectApi.ProjectSummary {
+  return {
+    building_id: buildingId,
+    name: buildingId,
+    updated_at: '2026-07-27T01:00:00.000Z',
+    status: 'draft',
+    revision: 0,
+    room_count: 0,
+    total_floor_area_m2: 0,
+    geometry_progress: 0,
+    room_semantic_progress: 0,
+    opening_progress: 100,
+    validation_error_count: 0,
+    validation_warning_count: 0,
+  };
+}

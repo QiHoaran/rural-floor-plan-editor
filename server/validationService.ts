@@ -74,7 +74,7 @@ function ensureSchemaLoaded(): void {
  * - open:          允许迁移，Schema 错误不阻止（仅记录）
  * - autosave:      Schema 错误阻止保存；业务警告允许保存
  * - complete:      Schema 错误 + 业务 error 阻止完成
- * - research_export: 比 complete 更严格，还必须有方向、比例尺、空间功能和来源信息
+ * - research_export: 比 complete 更严格，还必须有方向、空间功能和来源信息
  */
 export function validateForOperation(
   document: BuildingDocument,
@@ -207,14 +207,6 @@ export function checkResearchExportRequirements(
   document: BuildingDocument,
 ): ResearchExportIssue[] {
   const issues: ResearchExportIssue[] = [];
-
-  // 必须有比例标定
-  if (!document.reference_calibration?.calibrated) {
-    issues.push({
-      field: 'reference_calibration',
-      message: '缺少比例标定信息',
-    });
-  }
 
   // 必须有北向
   if (

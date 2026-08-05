@@ -1,6 +1,6 @@
-import type { NewProjectInput } from '@/api/projectApi.ts';
+import type { ReferenceImageUploadInput } from '@/api/projectApi.ts';
 
-export type ImageFileData = Omit<NewProjectInput, 'building_id'>;
+export type ImageFileData = ReferenceImageUploadInput;
 
 const SUPPORTED_MIMES = new Set([
   'image/jpeg',

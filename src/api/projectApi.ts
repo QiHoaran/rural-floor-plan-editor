@@ -1,5 +1,7 @@
 import type {
   BuildingDocument,
+  CustomFunctionType,
+  HouseholdSurvey,
 } from '@/editor/domain/buildingTypes.ts';
 
 // ---- 类型定义 ----
@@ -41,6 +43,21 @@ export interface OpenProjectResult {
   recovered_from_draft: boolean;
 }
 
+export type ReferenceImageUploadInput = Omit<
+  NewProjectInput,
+  'building_id' | 'wall_thickness_mm'
+>;
+
+export interface BulkSurveyImportResult {
+  created: string[];
+  updated: string[];
+}
+
+export interface RoomFunctionTemplateInput {
+  name: string;
+  color: string;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -73,10 +90,69 @@ export function createProject(
   });
 }
 
+export function bulkImportSurveys(
+  records: HouseholdSurvey[],
+): Promise<BulkSurveyImportResult> {
+  return requestJson('/api/projects/surveys/bulk', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ records }),
+  });
+}
+
+export function uploadReferenceImage(
+  buildingId: string,
+  input: ReferenceImageUploadInput,
+): Promise<BuildingDocument> {
+  return requestJson(`/api/projects/${encodeURIComponent(buildingId)}/reference`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export function listRoomFunctionTemplates(): Promise<CustomFunctionType[]> {
+  return requestJson('/api/settings/room-functions');
+}
+
+export function createRoomFunctionTemplate(
+  input: RoomFunctionTemplateInput,
+): Promise<CustomFunctionType> {
+  return requestJson('/api/settings/room-functions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateRoomFunctionTemplate(
+  code: string,
+  input: RoomFunctionTemplateInput,
+): Promise<CustomFunctionType> {
+  return requestJson(`/api/settings/room-functions/${encodeURIComponent(code)}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteRoomFunctionTemplate(code: string): Promise<void> {
+  return requestJson(`/api/settings/room-functions/${encodeURIComponent(code)}`, {
+    method: 'DELETE',
+  });
+}
+
 export function openProject(
   buildingId: string,
 ): Promise<OpenProjectResult> {
   return requestJson(`/api/projects/${encodeURIComponent(buildingId)}`);
+}
+
+export function openProjectFolder(buildingId: string): Promise<void> {
+  return requestEmpty(
+    `/api/projects/${encodeURIComponent(buildingId)}/open-folder`,
+    { method: 'POST' },
+  );
 }
 
 // ---- 自动保存（带 revision 锁） ----
@@ -264,6 +340,15 @@ export async function exportProject(
   };
 }
 
+export async function downloadProjectArchive(
+  buildingId: string,
+  options: ExportUrlOptions = { scale: '1:200', scaleBar: false },
+): Promise<Blob> {
+  const response = await fetch(exportProjectUrl(buildingId, options));
+  if (!response.ok) await throwResponseError(response);
+  return response.blob();
+}
+
 // ---- HTTP 工具 ----
 
 async function requestJson<T>(
@@ -288,6 +373,14 @@ async function requestJson<T>(
   return body as T;
 }
 
+async function requestEmpty(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<void> {
+  const response = await fetch(input, init);
+  if (!response.ok) await throwResponseError(response);
+}
+
 function commandRequest(document: BuildingDocument): RequestInit {
   return {
     method: 'POST',
@@ -310,7 +403,7 @@ async function throwResponseError(response: Response): Promise<never> {
     // Binary or empty error responses use the generic status message.
   }
   throw new ApiError(
-    error?.message ?? `璇锋眰澶辫触 (${response.status})`,
+    error?.message ?? `请求失败 (${response.status})`,
     response.status,
     error?.code ?? 'REQUEST_FAILED',
   );

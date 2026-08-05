@@ -17,14 +17,17 @@ export function prepareExportDocument(
   document: BuildingDocument,
 ): BuildingDocument {
   const now = new Date().toISOString();
-  return {
+  const validated: BuildingDocument = {
     ...document,
     metadata: {
       ...document.metadata,
       updated_at: now,
     },
-    statistics: computeBuildingStatistics(document),
     structured_validation: validateBuildingDocumentFull(document),
+  };
+  return {
+    ...validated,
+    statistics: computeBuildingStatistics(validated),
   };
 }
 

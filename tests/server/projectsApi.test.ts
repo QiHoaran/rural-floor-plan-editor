@@ -93,6 +93,82 @@ describe('projects API', () => {
     });
   });
 
+  it('bulk imports survey rows into padded JSON projects and updates duplicates', async () => {
+    const app = await createApp(config);
+    const first = await request(app)
+      .post('/api/projects/surveys/bulk')
+      .send({ records: [
+        { village_code: '1', household_code: '1', gender: 1, age: 69, construction_era: 9, clear_height_m: 2.5 },
+        { village_code: '1', household_code: '2', gender: 2, age: 65 },
+      ] })
+      .expect(200);
+
+    expect(first.body).toEqual({
+      created: ['rural_001_house_0001', 'rural_001_house_0002'],
+      updated: [],
+    });
+    const opened = await request(app)
+      .get('/api/projects/rural_001_house_0001')
+      .expect(200);
+    expect(opened.body.document.survey).toMatchObject({
+      village_code: '1', household_code: '1', gender: '男性', age: 69, construction_era: '1920 年代及以前', clear_height_mm: 2500,
+    });
+    expect(opened.body.document.reference_image.path).toBe('');
+    expect(opened.body.document.building_defaults.wall_height_mm).toBe(2500);
+
+    const second = await request(app)
+      .post('/api/projects/surveys/bulk')
+      .send({ records: [
+        { village_code: '1', household_code: '1', gender: 1, age: 70 },
+      ] })
+      .expect(200);
+    expect(second.body).toEqual({ created: [], updated: ['rural_001_house_0001'] });
+    const updated = await request(app)
+      .get('/api/projects/rural_001_house_0001')
+      .expect(200);
+    expect(updated.body.document.survey.age).toBe(70);
+    expect(updated.body.document.metadata.revision).toBe(1);
+  });
+
+  it('attaches a reference image after a survey-only import without allowing overwrite', async () => {
+    const app = await createApp(config);
+    await request(app)
+      .post('/api/projects/surveys/bulk')
+      .send({ records: [{ village_code: '2', household_code: '8', construction_era: 0 }] })
+      .expect(200);
+
+    const imageInput = {
+      image_name: 'floor-plan.png',
+      image_mime: 'image/png',
+      image_base64: Buffer.from('later-png-data').toString('base64'),
+      width_px: 800,
+      height_px: 600,
+    };
+    const attached = await request(app)
+      .post('/api/projects/rural_002_house_0008/reference')
+      .send(imageInput)
+      .expect(200);
+    expect(attached.body.reference_image).toMatchObject({
+      path: 'reference/original.png',
+      mime_type: 'image/png',
+      width_px: 800,
+      height_px: 600,
+    });
+    expect(attached.body.metadata.revision).toBe(1);
+    expect(attached.body.survey.construction_era).toBe('不确定');
+
+    const image = await request(app)
+      .get('/api/projects/rural_002_house_0008/files/reference/original.png')
+      .expect(200);
+    expect(image.body).toEqual(Buffer.from('later-png-data'));
+
+    const duplicate = await request(app)
+      .post('/api/projects/rural_002_house_0008/reference')
+      .send(imageInput)
+      .expect(409);
+    expect(duplicate.body.error.code).toBe('REFERENCE_ALREADY_EXISTS');
+  });
+
   it('rejects unsupported images and traversal IDs', async () => {
     const app = await createApp(config);
 
@@ -113,6 +189,104 @@ describe('projects API', () => {
       .get('/api/projects/%2E%2E%2Fescape')
       .expect(400);
     expect(pathError.body.error.code).toBe('INVALID_BUILDING_ID');
+  });
+
+  it('opens only the validated current project directory through the injected opener', async () => {
+    const openedDirectories: string[] = [];
+    config.folderOpener = async (directory) => { openedDirectories.push(directory); };
+    const app = await createApp(config);
+    await request(app)
+      .post('/api/projects/surveys/bulk')
+      .send({ records: [{ village_code: '3', household_code: '9' }] })
+      .expect(200);
+
+    await request(app)
+      .post('/api/projects/rural_003_house_0009/open-folder')
+      .expect(204);
+    expect(openedDirectories).toEqual([
+      path.join(config.dataRoot, 'rural_003_house_0009'),
+    ]);
+
+    await request(app)
+      .post('/api/projects/missing/open-folder')
+      .expect(404)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe('BUILDING_NOT_FOUND');
+      });
+  });
+
+  it('creates, updates, lists, and deletes application-level room templates', async () => {
+    const app = await createApp(config);
+    const created = await request(app)
+      .post('/api/settings/room-functions')
+      .send({ name: '火炕间', color: '#AABBCC' })
+      .expect(201);
+    expect(created.body).toMatchObject({ name: '火炕间', color: '#aabbcc' });
+    expect(created.body.code).toMatch(/^custom_/);
+
+    const listed = await request(app)
+      .get('/api/settings/room-functions')
+      .expect(200);
+    expect(listed.body).toEqual([created.body]);
+
+    const updated = await request(app)
+      .put(`/api/settings/room-functions/${created.body.code}`)
+      .send({ name: '冬季起居室', color: '#123456' })
+      .expect(200);
+    expect(updated.body).toEqual({
+      code: created.body.code,
+      name: '冬季起居室',
+      color: '#123456',
+    });
+
+    await request(app)
+      .delete(`/api/settings/room-functions/${created.body.code}`)
+      .expect(200, { ok: true });
+    await request(app).get('/api/settings/room-functions').expect(200, []);
+    const projectList = await request(app).get('/api/projects').expect(200);
+    expect(projectList.body).toEqual([]);
+  });
+
+  it('refreshes topology warnings and statistics during autosave', async () => {
+    const app = await createApp(config);
+    const created = await request(app)
+      .post('/api/projects')
+      .send({
+        building_id: 'house_quality',
+        image_name: 'sketch.png',
+        image_mime: 'image/png',
+        image_base64: Buffer.from('png-data').toString('base64'),
+        width_px: 640,
+        height_px: 480,
+      })
+      .expect(201);
+    const document = created.body;
+    document.survey = { village_code: '1', household_code: '1', bay_count: 4 };
+    document.vertices = {
+      a: { x_mm: 0, y_mm: 0 },
+      b: { x_mm: 1000, y_mm: 0 },
+    };
+    document.walls = {
+      wall: {
+        start_vertex_id: 'a', end_vertex_id: 'b', wall_type: 'exterior',
+        thickness_mm: 240, height_mm: 3000, material_type: 'brick',
+      },
+    };
+    document.floors[0].wall_ids = ['wall'];
+
+    const saved = await request(app)
+      .put('/api/projects/house_quality/autosave')
+      .send({ ...document, _clientRevision: 0 })
+      .expect(200);
+    expect(saved.body.structured_validation).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'BAY_FACE_COUNT_MISMATCH',
+          message_params: { bay_count: 4, face_count: 0 },
+        }),
+      ]),
+    );
+    expect(saved.body.statistics.validation_warning_count).toBeGreaterThan(0);
   });
 
   it('accepts atomic workflow commands and POST export with a revision header', async () => {

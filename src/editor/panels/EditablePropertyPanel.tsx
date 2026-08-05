@@ -17,6 +17,7 @@ import styles from './EditablePropertyPanel.module.css';
 import { FaceFunctionPanel } from './FaceFunctionPanel.tsx';
 import { ConnectivityPanel } from './ConnectivityPanel.tsx';
 import { VertexPropertyPanel } from './VertexPropertyPanel.tsx';
+import { SurveyPropertyPanel } from './SurveyPropertyPanel.tsx';
 
 export function EditablePropertyPanel() {
   const document = useEditorStore((state) => state.buildingDocument);
@@ -39,14 +40,7 @@ export function EditablePropertyPanel() {
   if (selection?.type === 'vertex' && document.vertices[selection.id]) {
     return <VertexPropertyPanel key={selection.id} vertexId={selection.id} />;
   }
-  return (
-    <aside className={styles.panel}>
-      <div className={styles.header}>属性</div>
-      <div className={styles.empty}>
-        选择墙体以编辑精确尺寸，或选择“调整参考图”修改草图显示。
-      </div>
-    </aside>
-  );
+  return <SurveyPropertyPanel />;
 }
 
 function WallProperties({ wallId }: { wallId: string }) {
@@ -63,9 +57,6 @@ function WallProperties({ wallId }: { wallId: string }) {
   const [length, setLength] = useState(initialLength);
   const [thickness, setThickness] = useState(
     (wall.thickness_mm / 1000).toFixed(3),
-  );
-  const [height, setHeight] = useState(
-    (wall.height_mm / 1000).toFixed(3),
   );
   const [error, setError] = useState('');
 
@@ -85,7 +76,7 @@ function WallProperties({ wallId }: { wallId: string }) {
   const commitDimension = (
     label: string,
     value: string,
-    property: 'thickness_mm' | 'height_mm',
+    property: 'thickness_mm',
     setValue: (next: string) => void,
   ) => {
     const parsed = parseMeters(value);
@@ -152,18 +143,6 @@ function WallProperties({ wallId }: { wallId: string }) {
                 'thickness_mm',
                 setThickness,
               )
-            }
-          />
-        </label>
-        <label className={styles.field}>
-          <span>墙高（米）</span>
-          <input
-            aria-label="墙高（米）"
-            inputMode="decimal"
-            value={height}
-            onChange={(event) => setHeight(event.target.value)}
-            onBlur={() =>
-              commitDimension('墙高', height, 'height_mm', setHeight)
             }
           />
         </label>

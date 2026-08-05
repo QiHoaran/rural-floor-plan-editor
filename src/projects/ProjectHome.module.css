@@ -1,6 +1,9 @@
 .home {
-  min-height: 100%;
-  overflow: auto;
+  height: 100%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 56px clamp(24px, 8vw, 120px);
   background:
     radial-gradient(circle at 85% 10%, rgba(37, 99, 235, 0.11), transparent 30%),
@@ -44,6 +47,47 @@
   margin-bottom: 16px;
 }
 
+.projectHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.projectHeader h2 {
+  margin: 0;
+}
+
+.selectionActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.selectionActions button {
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+}
+
+.selectionActions button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.selectionActions .batchDeleteButton {
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
 .projectGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
@@ -64,6 +108,26 @@
 .projectCard:hover {
   border-color: #93c5fd;
   transform: translateY(-1px);
+}
+
+.projectCardSelected {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+.projectSelector {
+  width: 38px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-right: 1px solid #e2e8f0;
+  cursor: pointer;
+}
+
+.projectSelector input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 
 .projectCardMain {
@@ -282,6 +346,38 @@
   background: #1d4ed8;
 }
 
+.heroActions {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.secondaryButton {
+  min-height: 38px;
+  padding: 0 18px;
+  border: 1px solid #93c5fd;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.secondaryButton:hover {
+  background: #dbeafe;
+}
+
+.importMessage {
+  max-width: 1080px;
+  margin: -28px auto 28px;
+  padding: 10px 14px;
+  border: 1px solid #bbf7d0;
+  border-radius: 7px;
+  background: #f0fdf4;
+  color: #15803d;
+  font-size: 13px;
+}
+
 .dialogBackdrop {
   position: fixed;
   inset: 0;
@@ -300,6 +396,42 @@
   border-radius: 12px;
   background: #fff;
   box-shadow: 0 24px 80px rgba(15, 23, 42, 0.25);
+}
+
+.wideDialog {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+}
+
+.wideDialog textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 9px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.dialogHint {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.importStatus {
+  color: #475569;
+  font-size: 12px;
+}
+
+.actionSpacer {
+  flex: 1;
+}
+
+@media (max-width: 720px) {
+  .hero { align-items: stretch; flex-direction: column; }
+  .heroActions { flex-wrap: wrap; }
 }
 
 .dialog label {

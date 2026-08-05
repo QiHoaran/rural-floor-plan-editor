@@ -5,12 +5,20 @@ import { ZipArchive } from 'archiver';
 import { createEmptyBuilding } from '../src/editor/domain/buildingDocument.js';
 import type { BuildingDocument } from '../src/editor/domain/buildingTypes.js';
 import { prepareExportDocument } from '../src/editor/domain/exportUtils.js';
+import { computeBuildingStatistics } from '../src/editor/domain/buildingStatistics.js';
+import { validateBuildingDocumentFull } from '../src/editor/domain/buildingValidation.js';
 import { generateSpatialGraph } from '../src/editor/domain/spatialGraph.js';
 import { exportBuildingToGeoJson } from '../src/editor/domain/buildingGeoJson.js';
 import { migrateToCurrent } from '../src/editor/domain/migrations/index.js';
+import {
+  createSurveyBuildingId,
+  synchronizeClearHeight,
+} from '../src/editor/domain/surveyData.js';
+import type { HouseholdSurvey } from '../src/editor/domain/buildingTypes.js';
 import { atomicWriteJson } from './atomicWrite.js';
 import { ServiceError } from './errors.js';
 import { renderPng } from './exportPng.js';
+import { openLocalDirectory } from './openLocalDirectory.js';
 import {
   renderBuildingSvg,
 } from './renderBuildingSvg.js';
@@ -56,13 +64,15 @@ const DEFAULT_PIXELS_PER_MM = 0.477; // 1:200
 export interface CreateProjectInput {
   buildingId: string;
   wallThicknessMm?: number;
-  image: {
-    bytes: Buffer;
-    extension: string;
-    mimeType: string;
-    widthPx: number;
-    heightPx: number;
-  };
+  image: ReferenceImageInput;
+}
+
+export interface ReferenceImageInput {
+  bytes: Buffer;
+  extension: string;
+  mimeType: string;
+  widthPx: number;
+  heightPx: number;
 }
 
 export interface ProjectSummary {
@@ -87,6 +97,11 @@ export interface RevisionEntry {
   notes?: string;
 }
 
+export interface BulkSurveyImportResult {
+  created: string[];
+  updated: string[];
+}
+
 const EXTENSION_BY_MIME: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -98,7 +113,10 @@ const REVISIONS_DIR = 'revisions';
 export class ProjectService {
   private readonly projectQueues = new Map<string, Promise<void>>();
 
-  constructor(private readonly dataRoot: string) {}
+  constructor(
+    private readonly dataRoot: string,
+    private readonly folderOpener: (directory: string) => Promise<void> = openLocalDirectory,
+  ) {}
 
   /** 确保 data/ 和 data/.trash/ 目录存在，服务启动时调用 */
   async ensureDirectories(): Promise<void> {
@@ -180,6 +198,122 @@ export class ProjectService {
     }
   }
 
+  async attachReferenceImage(
+    buildingId: string,
+    image: ReferenceImageInput,
+  ): Promise<BuildingDocument> {
+    const safeId = validateBuildingId(buildingId);
+    const extension = EXTENSION_BY_MIME[image.mimeType];
+    if (!extension) {
+      throw new ServiceError(
+        '参考图片只支持 JPEG、PNG 或 WebP',
+        400,
+        'UNSUPPORTED_IMAGE',
+      );
+    }
+    if (
+      !Number.isInteger(image.widthPx) || image.widthPx <= 0 ||
+      !Number.isInteger(image.heightPx) || image.heightPx <= 0
+    ) {
+      throw new ServiceError('参考图片尺寸无效', 400, 'INVALID_IMAGE_DIMENSIONS');
+    }
+
+    return this.withProjectLock(safeId, async () => {
+      const current = (await this.open(safeId)).document;
+      if (current.reference_image.path) {
+        throw new ServiceError(
+          '当前项目已有参考图，不能通过补图入口覆盖',
+          409,
+          'REFERENCE_ALREADY_EXISTS',
+        );
+      }
+      const buildingDir = resolveBuildingDir(this.dataRoot, safeId);
+      const referencePath = `reference/original.${extension}`;
+      await fs.writeFile(
+        path.join(buildingDir, 'reference', `original.${extension}`),
+        image.bytes,
+      );
+      const saved: BuildingDocument = {
+        ...current,
+        reference_image: {
+          ...current.reference_image,
+          path: referencePath,
+          mime_type: image.mimeType,
+          width_px: image.widthPx,
+          height_px: image.heightPx,
+        },
+        metadata: {
+          ...current.metadata,
+          updated_at: new Date().toISOString(),
+          revision: current.metadata.revision + 1,
+        },
+      };
+      assertValidForOperation(saved, 'autosave');
+      await atomicWriteJson(
+        path.join(buildingDir, 'draft', 'building.autosave.json'),
+        saved,
+      );
+      return saved;
+    });
+  }
+
+  async bulkImportSurveys(
+    records: HouseholdSurvey[],
+  ): Promise<BulkSurveyImportResult> {
+    const result: BulkSurveyImportResult = { created: [], updated: [] };
+    await this.ensureDirectories();
+
+    for (const survey of records) {
+      const buildingId = validateBuildingId(createSurveyBuildingId(survey));
+      await this.withProjectLock(buildingId, async () => {
+        const buildingDir = resolveBuildingDir(this.dataRoot, buildingId);
+        let current: BuildingDocument | null = null;
+        try {
+          current = (await this.open(buildingId)).document;
+        } catch (error) {
+          if (!(error instanceof ServiceError) || error.code !== 'BUILDING_NOT_FOUND') {
+            throw error;
+          }
+        }
+
+        if (!current) {
+          await fs.mkdir(buildingDir);
+          try {
+            await Promise.all(
+              ['reference', 'preview', 'draft', REVISIONS_DIR].map((name) =>
+                fs.mkdir(path.join(buildingDir, name)),
+              ),
+            );
+            const document = applySurvey(
+              createEmptyBuilding(buildingId, ''),
+              survey,
+              false,
+            );
+            await atomicWriteJson(
+              path.join(buildingDir, 'draft', 'building.autosave.json'),
+              document,
+            );
+            result.created.push(buildingId);
+          } catch (error) {
+            await fs.rm(buildingDir, { recursive: true, force: true });
+            throw error;
+          }
+          return;
+        }
+
+        const updated = applySurvey(current, survey, true);
+        assertValidForOperation(updated, 'autosave');
+        await atomicWriteJson(
+          path.join(buildingDir, 'draft', 'building.autosave.json'),
+          updated,
+        );
+        result.updated.push(buildingId);
+      });
+    }
+
+    return result;
+  }
+
   async list(): Promise<ProjectSummary[]> {
     await fs.mkdir(this.dataRoot, { recursive: true });
     const entries = await fs.readdir(this.dataRoot, { withFileTypes: true });
@@ -221,6 +355,35 @@ export class ProjectService {
     return projects.sort((a, b) =>
       a.building_id.localeCompare(b.building_id),
     );
+  }
+
+  async openFolder(buildingId: string): Promise<void> {
+    const buildingDir = resolveBuildingDir(this.dataRoot, buildingId);
+    let realRoot: string;
+    let realBuildingDir: string;
+    try {
+      [realRoot, realBuildingDir] = await Promise.all([
+        fs.realpath(this.dataRoot),
+        fs.realpath(buildingDir),
+      ]);
+      const stat = await fs.stat(realBuildingDir);
+      if (!stat.isDirectory()) throw new Error('not a directory');
+    } catch {
+      throw new ServiceError(
+        `建筑 ${buildingId} 不存在`,
+        404,
+        'BUILDING_NOT_FOUND',
+      );
+    }
+    const relative = path.relative(realRoot, realBuildingDir);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new ServiceError(
+        '建筑目录超出了 data 目录边界',
+        400,
+        'INVALID_PROJECT_DIRECTORY',
+      );
+    }
+    await this.folderOpener(realBuildingDir);
   }
 
   async trash(buildingId: string): Promise<void> {
@@ -424,7 +587,7 @@ export class ProjectService {
       );
     }
 
-    const saved: BuildingDocument = {
+    const validated: BuildingDocument = {
       ...document,
       metadata: {
         ...document.metadata,
@@ -434,6 +597,9 @@ export class ProjectService {
       },
       workflow: structuredClone(current.document.workflow),
     };
+    validated.structured_validation = validateBuildingDocumentFull(validated);
+    validated.statistics = computeBuildingStatistics(validated);
+    const saved = validated;
 
     await atomicWriteJson(
       path.join(buildingDir, 'draft', 'building.autosave.json'),
@@ -1068,9 +1234,9 @@ function summarizeDocument(document: BuildingDocument): ProjectSummary {
   const structuredIssues = document.structured_validation ?? [];
 
   const allIssues = [
-    ...issues.map((i) => ({ severity: i.level })),
-    ...structuredIssues.map((i) => ({ severity: i.severity })),
-  ];
+    ...issues.map((i) => ({ severity: i.level, code: i.code })),
+    ...structuredIssues.map((i) => ({ severity: i.severity, code: i.code })),
+  ].filter((issue) => issue.code !== 'REFERENCE_SCALE_MISSING');
 
   const labeledFaces = faces.filter(
     (f) => f.function_code && f.function_code !== 'unknown',
@@ -1105,6 +1271,26 @@ function summarizeDocument(document: BuildingDocument): ProjectSummary {
       (i) => i.severity === 'warning',
     ).length,
   };
+}
+
+function applySurvey(
+  document: BuildingDocument,
+  survey: HouseholdSurvey,
+  incrementRevision: boolean,
+): BuildingDocument {
+  const now = new Date().toISOString();
+  return synchronizeClearHeight({
+    ...document,
+    survey: structuredClone(survey),
+    metadata: {
+      ...document.metadata,
+      name: `村 ${survey.village_code} · 户 ${survey.household_code}`,
+      village_code: survey.village_code,
+      household_code: survey.household_code,
+      updated_at: now,
+      revision: document.metadata.revision + (incrementRevision ? 1 : 0),
+    },
+  });
 }
 
 async function readDocumentCandidate(

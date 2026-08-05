@@ -34,7 +34,6 @@ const TOOLS: ToolDef[] = [
   // v2.1.0: 标注与标定
   { type: 'room_label_brush', label: '房间标注刷', icon: '🖌', shortcut: 'L', group: 'label' },
   { type: 'reference_calibration', label: '比例标定', icon: '📏', shortcut: 'C', group: 'calib' },
-  { type: 'north_orientation', label: '设置北向', icon: '🧭', shortcut: 'N', group: 'calib' },
 
   // 参考图
   { type: 'adjust_reference', label: '调整参考图', icon: '▧', shortcut: 'R', group: 'ref' },

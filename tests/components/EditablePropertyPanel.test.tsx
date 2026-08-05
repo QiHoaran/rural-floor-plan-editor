@@ -35,6 +35,7 @@ describe('EditablePropertyPanel', () => {
 
   it('edits wall length in meters while fixing the selected anchor', () => {
     render(<EditablePropertyPanel />);
+    expect(screen.queryByLabelText('墙高（米）')).toBeNull();
     const length = screen.getByLabelText('墙长（米）');
 
     expect((length as HTMLInputElement).value).toBe('4.500');
@@ -44,6 +45,46 @@ describe('EditablePropertyPanel', () => {
     const document = useEditorStore.getState().buildingDocument!;
     expect(document.vertices.v_1).toEqual({ x_mm: 1000, y_mm: 1000 });
     expect(document.vertices.v_2).toEqual({ x_mm: 6200, y_mm: 1000 });
+  });
+
+  it('shows and edits household survey attributes when no geometry is selected', () => {
+    const document = useEditorStore.getState().buildingDocument!;
+    document.reference_image.path = '';
+    useEditorStore.getState().loadBuilding(document);
+    useEditorStore.getState().setSelection(null);
+    render(<EditablePropertyPanel />);
+
+    expect(screen.getByLabelText('导入参考草图')).toBeTruthy();
+    expect(screen.getByRole('option', { name: '女性' })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: '2. 女性' })).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('村号（rural）'), { target: { value: '001' } });
+    fireEvent.change(screen.getByLabelText('户号（house）'), { target: { value: '0001' } });
+    fireEvent.change(screen.getByLabelText('性别'), { target: { value: '女性' } });
+    fireEvent.change(screen.getByLabelText('人口结构'), { target: { value: '三代户' } });
+    const age = screen.getByLabelText('年龄');
+    fireEvent.change(age, { target: { value: '68' } });
+    fireEvent.blur(age);
+    const clearHeight = screen.getByLabelText('建筑净高（米）');
+    fireEvent.change(clearHeight, { target: { value: '2.75' } });
+    fireEvent.blur(clearHeight);
+
+    expect(useEditorStore.getState().buildingDocument!.survey).toMatchObject({
+      village_code: '001',
+      household_code: '0001',
+      gender: '女性',
+      family_structure: '三代户',
+      age: 68,
+      clear_height_mm: 2750,
+    });
+    expect(useEditorStore.getState().buildingDocument!.metadata).toMatchObject({
+      village_code: '001',
+      household_code: '0001',
+    });
+    expect(useEditorStore.getState().buildingDocument!.building_defaults.wall_height_mm)
+      .toBe(2750);
+    expect(useEditorStore.getState().buildingDocument!.walls.w_1.height_mm)
+      .toBe(2750);
   });
 
   it('can fix the end vertex when changing length', () => {

@@ -35,6 +35,12 @@ describe('CAD Toolbar', () => {
     expect(exterior.getAttribute('aria-pressed')).toBe('true');
   });
 
+  it('uses the fixed reference-image direction instead of a north-setting tool', () => {
+    render(<Toolbar />);
+
+    expect(screen.queryByRole('button', { name: /设置北向/ })).toBeNull();
+  });
+
   it.each([
     ['外门', 'exterior_door'],
     ['外窗', 'exterior_window'],

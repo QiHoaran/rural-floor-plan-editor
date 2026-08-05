@@ -169,19 +169,19 @@ const ISSUE_DEFINITIONS: Record<string, IssueDefinition> = {
     message_key: 'validation.room_no_direct_daylight',
     fix_suggestion_key: 'fix.room_no_direct_daylight',
   },
-  REFERENCE_SCALE_MISSING: {
-    code: 'REFERENCE_SCALE_MISSING',
-    severity: 'warning',
-    category: 'reference',
-    message_key: 'validation.reference_scale_missing',
-    fix_suggestion_key: 'fix.reference_scale_missing',
-  },
   NORTH_ANGLE_MISSING: {
     code: 'NORTH_ANGLE_MISSING',
     severity: 'warning',
     category: 'reference',
     message_key: 'validation.north_angle_missing',
     fix_suggestion_key: 'fix.north_angle_missing',
+  },
+  BAY_FACE_COUNT_MISMATCH: {
+    code: 'BAY_FACE_COUNT_MISMATCH',
+    severity: 'warning',
+    category: 'topology',
+    message_key: 'validation.bay_face_count_mismatch',
+    fix_suggestion_key: 'fix.bay_face_count_mismatch',
   },
 };
 
@@ -203,8 +203,9 @@ const ZH_MESSAGES: Record<string, string> = {
   'validation.room_not_accessible': '房间无人员可达路径',
   'validation.room_no_air_path': '房间无通风路径',
   'validation.room_no_direct_daylight': '房间无直接自然采光',
-  'validation.reference_scale_missing': '未完成比例标定',
   'validation.north_angle_missing': '未设置北向',
+  'validation.bay_face_count_mismatch':
+    '开间数为 {bay_count}，当前检索到 {face_count} 个室内面',
   'fix.schema_invalid': '请检查数据格式是否完整',
   'fix.wall_zero_length': '请删除零长度墙体或修改端点',
   'fix.wall_duplicated': '请删除重复的墙体',
@@ -216,15 +217,19 @@ const ZH_MESSAGES: Record<string, string> = {
   'fix.room_not_accessible': '请添加通往室外的门或通道',
   'fix.room_no_air_path': '请添加可开启门窗以形成通风路径',
   'fix.room_no_direct_daylight': '请添加外窗以提供自然采光',
-  'fix.reference_scale_missing': '请使用比例标定工具指定参考距离',
-  'fix.north_angle_missing': '请使用北向工具设置建筑朝向',
+  'fix.north_angle_missing': '参考图方向固定为上北下南、左西右东，请重新打开项目以补全默认方向',
+  'fix.bay_face_count_mismatch':
+    '请检查墙体是否全部闭合，或核对房屋信息中的开间数',
 };
 
 /**
  * 获取校验问题的中文显示消息
  */
 export function getValidationMessageZh(issue: ValidationIssue): string {
-  return ZH_MESSAGES[issue.message_key] ?? issue.message_key;
+  return interpolateMessage(
+    ZH_MESSAGES[issue.message_key] ?? issue.message_key,
+    issue.message_params,
+  );
 }
 
 /**
@@ -419,6 +424,21 @@ function validateGeometry(document: BuildingDocument): ValidationIssue[] {
 function validateTopology(document: BuildingDocument): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
+  const bayCount = document.survey?.bay_count;
+  const faceCount = Object.keys(document.faces).length;
+  if (
+    Object.keys(document.walls).length > 0 &&
+    Number.isInteger(bayCount) &&
+    bayCount !== faceCount
+  ) {
+    issues.push(
+      createValidationIssue('BAY_FACE_COUNT_MISMATCH', 'building', undefined, {
+        bay_count: bayCount as number,
+        face_count: faceCount,
+      }),
+    );
+  }
+
   for (const [wallId, wall] of Object.entries(document.walls)) {
     if (
       !document.vertices[wall.start_vertex_id] ||
@@ -539,6 +559,16 @@ function validateTopology(document: BuildingDocument): ValidationIssue[] {
   return issues;
 }
 
+function interpolateMessage(
+  template: string,
+  params?: Record<string, string | number>,
+): string {
+  if (!params) return template;
+  return template.replace(/\{([^}]+)\}/g, (match, key: string) =>
+    params[key] === undefined ? match : String(params[key]),
+  );
+}
+
 function validateSemantics(document: BuildingDocument): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
@@ -556,10 +586,6 @@ function validateSemantics(document: BuildingDocument): ValidationIssue[] {
 
 function validateReference(document: BuildingDocument): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-
-  if (!document.reference_calibration?.calibrated) {
-    issues.push(createValidationIssue('REFERENCE_SCALE_MISSING', 'building'));
-  }
 
   if (
     document.site.north_angle_deg === undefined ||

@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   assignFaceFunction,
-  createAndAssignCustomFaceFunction,
   RURAL_FACE_FUNCTION_PRESETS,
   type FaceFunctionType,
 } from '@/editor/domain/faceFunctions.ts';
 import { markFaceAsOutside } from '@/editor/topology/outsideRegions.ts';
 import { useEditorStore } from '@/editor/store/editorStore.ts';
+import {
+  ensureRoomFunctionSnapshot,
+  mergeRoomFunctionTypes,
+} from '@/editor/domain/roomFunctionTemplates.ts';
+import { ROOM_FUNCTION_DICTIONARY } from '@/editor/domain/constants.ts';
+import { useRoomFunctionTemplates } from '@/editor/hooks/useRoomFunctionTemplates.ts';
 import styles from './FaceFunctionPanel.module.css';
 
 export function FaceFunctionPanel({ faceId }: { faceId: string }) {
@@ -20,6 +25,8 @@ export function FaceFunctionPanel({ faceId }: { faceId: string }) {
   const [customColor, setCustomColor] = useState('#94a3b8');
   const [error, setError] = useState('');
   const [confirmOutside, setConfirmOutside] = useState(false);
+  const [templateBusy, setTemplateBusy] = useState(false);
+  const templateState = useRoomFunctionTemplates();
   const previousFaceId = useRef(faceId);
   const localNameEdit = useRef({ focused: false, dirty: false });
   const notesEdit = useRef({ focused: false, dirty: false });
@@ -51,21 +58,34 @@ export function FaceFunctionPanel({ faceId }: { faceId: string }) {
   }, [face?.local_name, face?.notes, faceId]);
 
   if (!face) return null;
-  const functionTypes: FaceFunctionType[] = [
-    ...RURAL_FACE_FUNCTION_PRESETS,
-    ...document.custom_function_types,
-  ];
+  const functionTypes: FaceFunctionType[] = mergeRoomFunctionTypes(
+    RURAL_FACE_FUNCTION_PRESETS,
+    templateState.templates,
+    document.custom_function_types,
+  );
+  const historicalFunction = face.function_code &&
+    !functionTypes.some((item) => item.code === face.function_code)
+    ? {
+        code: face.function_code,
+        name: face.display_name || ROOM_FUNCTION_DICTIONARY.find(
+          (item) => item.code === face.function_code,
+        )?.name || face.function_code,
+      }
+    : null;
 
   const assign = (code: string) => {
     const functionType = functionTypes.find((item) => item.code === code);
     if (!functionType) return;
-    transact('设置功能面类型', (current) => ({
-      ...current,
-      faces: {
-        ...current.faces,
-        [faceId]: assignFaceFunction(current.faces[faceId], functionType),
-      },
-    }));
+    transact('设置功能面类型', (current) => {
+      const withSnapshot = ensureRoomFunctionSnapshot(current, functionType);
+      return {
+        ...withSnapshot,
+        faces: {
+          ...withSnapshot.faces,
+          [faceId]: assignFaceFunction(withSnapshot.faces[faceId], functionType),
+        },
+      };
+    });
   };
 
   const updateFace = (
@@ -86,22 +106,33 @@ export function FaceFunctionPanel({ faceId }: { faceId: string }) {
     });
   };
 
-  const addCustom = () => {
+  const addCustom = async () => {
     if (!customName.trim()) {
       setError('名称不能为空');
       return;
     }
-    transact('添加自定义功能面类型', (current) => {
-      const result = createAndAssignCustomFaceFunction(
-        current,
-        faceId,
-        customName,
-        customColor,
-      );
-      return result.ok ? result.document : current;
-    });
-    setError('');
-    setCustomName('');
+    setTemplateBusy(true);
+    try {
+      const functionType = await templateState.createTemplate(customName, customColor);
+      transact('添加全项目房间模板并标注', (current) => {
+        const withSnapshot = ensureRoomFunctionSnapshot(current, functionType);
+        const currentFace = withSnapshot.faces[faceId];
+        if (!currentFace) return current;
+        return {
+          ...withSnapshot,
+          faces: {
+            ...withSnapshot.faces,
+            [faceId]: assignFaceFunction(currentFace, functionType),
+          },
+        };
+      });
+      setError('');
+      setCustomName('');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '模板创建失败');
+    } finally {
+      setTemplateBusy(false);
+    }
   };
 
   const confirmMarkOutside = () => {
@@ -128,6 +159,11 @@ export function FaceFunctionPanel({ faceId }: { faceId: string }) {
             onChange={(event) => assign(event.target.value)}
           >
             <option value="">未指定</option>
+            {historicalFunction && (
+              <option value={historicalFunction.code} disabled>
+                {historicalFunction.name}（历史标注）
+              </option>
+            )}
             {functionTypes.map((item) => (
               <option key={item.code} value={item.code}>
                 {item.name}
@@ -189,7 +225,7 @@ export function FaceFunctionPanel({ faceId }: { faceId: string }) {
           />
         </label>
 
-        <div className={styles.sectionTitle}>自定义功能</div>
+        <div className={styles.sectionTitle}>全项目自定义模板</div>
         <label className={styles.field}>
           <span>名称</span>
           <input
@@ -207,8 +243,8 @@ export function FaceFunctionPanel({ faceId }: { faceId: string }) {
             onChange={(event) => setCustomColor(event.target.value)}
           />
         </label>
-        <button type="button" onClick={addCustom}>
-          添加自定义功能
+        <button type="button" disabled={templateBusy} onClick={() => void addCustom()}>
+          {templateBusy ? '正在添加…' : '添加模板并应用'}
         </button>
         {error && <div className={styles.error}>{error}</div>}
 

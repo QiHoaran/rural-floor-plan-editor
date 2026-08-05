@@ -211,13 +211,17 @@ draft → pending_review → reviewed → complete
 | 数据模型 | JSON Schema + AJV 运行时校验 | ✓ |
 | 数据模型 | 旧版数据迁移（PlanDocument → BuildingDocument） | ✓ |
 | 项目管理 | 项目列表丰富卡片（统计、进度、问题数） | ✓ |
+| 项目管理 | 多选、全选、批量移入回收站、逐栋 ZIP 导出 | ✓ |
+| 项目管理 | 从编辑器安全打开当前建筑本地文件夹 | ✓ |
 | 项目管理 | 工作流状态（draft/pending_review/reviewed/complete） | ✓ |
 | 项目管理 | revision 乐观锁 | ✓ |
 | 项目管理 | revision 历史查看与恢复 | ✓ |
 | 数据质量 | 分类校验（几何/拓扑/语义/通行/通风/采光/参考） | ✓ |
 | 数据质量 | 数据质量面板（筛选、定位、高亮） | ✓ |
 | 数据质量 | 完成前强制检查 | ✓ |
-| 批量标注 | 乡村住宅房间功能字典（16 种） | ✓ |
+| 数据质量 | 调查开间数与室内拓扑面数一致性检查 | ✓ |
+| 批量标注 | 寒冷地区内置房间功能（卧室、客厅、餐厅） | ✓ |
+| 批量标注 | 全项目自定义房间模板（增删改色、建筑快照） | ✓ |
 | 批量标注 | 房间标注刷工具 | ✓ |
 | 批量标注 | 多选批量标注 | ✓ |
 | 批量标注 | 快捷键标注（0-9） | ✓ |
@@ -228,8 +232,8 @@ draft → pending_review → reviewed → complete
 | 导出 | 空间图导出（节点+边+关系通道） | ✓ |
 | 导出 | GeoJSON 导出（local_cartesian_mm） | ✓ |
 | 导出 | ZIP 建筑包导出 | ✓ |
-| 参考标定 | 北向设置字段 | ✓ |
-| 参考标定 | 比例标定数据结构 | ✓ |
+| 参考方向 | 统一采用上北、下南、左西、右东 | ✓ |
+| 参考标定 | 比例标定数据结构（可选，不参与质量检查） | ✓ |
 
 ## API 端点
 
@@ -249,14 +253,25 @@ draft → pending_review → reviewed → complete
 | `POST` | `/api/projects/:id/revisions/:rev/restore` | 恢复指定 revision |
 | `DELETE` | `/api/projects/:id` | 移入回收站 |
 | `POST` | `/api/projects/:id/restore` | 从回收站恢复 |
+| `POST` | `/api/projects/surveys/bulk` | 批量创建或更新住户调查属性 |
+| `POST` | `/api/projects/:id/reference` | 为仅属性项目追加参考草图 |
+| `POST` | `/api/projects/:id/open-folder` | 从本机打开项目文件夹（仅回环请求） |
 | `GET` | `/api/projects/:id/export` | 下载建筑包 ZIP |
 | `GET` | `/api/projects/:id/files/*` | 获取项目文件 |
+| `GET/POST` | `/api/settings/room-functions` | 列出或创建全项目房间模板 |
+| `PUT/DELETE` | `/api/settings/room-functions/:code` | 更新或删除全项目房间模板 |
 
 ## 导出格式
 
 ### Building JSON
 
 `{building_id}_building_v{revision}.json` — 完整 BuildingDocument v2.1.0
+
+住户调查数据保存在 `survey` 对象中，枚举属性直接使用中文值（如 `"gender": "男性"`、`"construction_era": "不确定"`）。首页“批量导入属性”支持从 Excel 粘贴 TSV、CSV 和 JSON，原数字编码会在导入时自动转换为中文；数字村号补足 3 位、户号补足 4 位，项目 ID 统一为 `rural_001_house_0001`。重复 ID 会更新调查属性并保留已有平面图数据。进入项目并取消几何选择后，可在右侧属性页逐项修改；仅属性项目可在同一页面追加参考草图。
+
+界面和表格中的建筑净高、正房/厢房开间及面宽以“米”输入和显示，写入 Building JSON 时统一乘以 1000，保存为 `clear_height_mm`、`main_room_bay_mm`、`main_room_width_mm`、`wing_room_bay_mm`、`wing_room_width_mm` 整数毫米字段。建筑净高是唯一可编辑高度；修改、批量导入或打开旧项目时，会同步兼容字段 `building_defaults.wall_height_mm` 和各墙体的 `height_mm`。
+
+门窗属性使用单个“尺寸（宽×高，米）”输入，接受 `×`、`*` 和英文 `x`。`offset_mm` 与 `sill_mm` 不再在属性面板编辑，但仍保留在 JSON 中供墙上定位、边界检查和旧数据兼容。全项目房间模板保存在 `data/.settings/room-function-templates.json`；模板分配给房间时，名称和颜色快照会写入该建筑的 `custom_function_types`，因此删除全局模板不会破坏历史标注。
 
 ### 空间图
 
@@ -277,7 +292,7 @@ draft → pending_review → reviewed → complete
 | `Ctrl+Z` | 撤销 |
 | `Ctrl+Shift+Z` / `Ctrl+Y` | 重做 |
 | `Space` + 拖拽 | 平移画布 |
-| `1`–`9`, `0` | 房间标注刷：选择功能 |
+| `1`–`3` | 房间标注刷：卧室、客厅、餐厅 |
 | `Tab` | 下一个未标注房间 |
 | `Shift+Tab` | 上一个未标注房间 |
 | `Esc` | 退出标注刷 / 取消绘制 |

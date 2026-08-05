@@ -1,7 +1,11 @@
 .panel {
   width: var(--panel-width);
+  height: 100%;
+  min-height: 0;
   flex-shrink: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border-left: 1px solid var(--color-border);
   background: var(--color-surface);
 }
@@ -16,6 +20,29 @@
   display: grid;
   gap: 14px;
   padding: 14px;
+}
+
+.helper {
+  margin: 0;
+  padding: 9px 10px;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.sectionTitle {
+  margin-top: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.inlineError {
+  color: #b91c1c;
+  font-size: 10px;
 }
 
 .field {

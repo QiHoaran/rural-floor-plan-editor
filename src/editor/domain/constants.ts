@@ -9,6 +9,11 @@ import type { GridSettings, PlanDefaults, SnapMode } from './planTypes.ts';
 export const SCHEMA_VERSION = '0.2.0'; // 旧 PlanDocument schema
 export const CURRENT_SCHEMA_VERSION = '2.1.0'; // 当前 BuildingDocument schema
 
+// ---- 参考图方向 ----
+/** 参考图统一采用：上北、下南、左西、右东。 */
+export const DEFAULT_NORTH_ANGLE_DEG = 0;
+export const REFERENCE_DIRECTION_LABEL = '上北 · 下南 · 左西 · 右东';
+
 // ---- 网格（cm，仅用于 PlanDocument 兼容） ----
 export const MAJOR_GRID_STEP_CM = 24;
 export const MINOR_GRID_STEP_CM = 6;
@@ -212,14 +217,7 @@ export function getRoomFunctionColor(code: string | null): string {
 
 /** 快捷键 → 房间功能代码映射 */
 export const ROOM_SHORTCUT_MAP: Record<string, string> = {
-  '1': 'living_room',
-  '2': 'bedroom',
-  '3': 'kitchen',
-  '4': 'dining_room',
-  '5': 'toilet',
-  '6': 'storage',
-  '7': 'corridor',
-  '8': 'staircase',
-  '9': 'other',
-  '0': 'unknown',
+  '1': 'bedroom',
+  '2': 'living_room',
+  '3': 'dining_room',
 };

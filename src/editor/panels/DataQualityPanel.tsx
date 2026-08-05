@@ -56,10 +56,14 @@ export function DataQualityPanel() {
 
   const allIssues = useMemo(() => {
     if (!document) return [];
-    const structured = document.structured_validation ?? [];
+    // 兼容已保存的旧检查结果：比例标定不再属于质量问题。
+    const structured = (document.structured_validation ?? []).filter(
+      (issue) => issue.code !== 'REFERENCE_SCALE_MISSING',
+    );
     // Also convert old-style issues
-    const oldIssues: ValidationIssue[] = (document.validation?.issues ?? []).map(
-      (issue) => ({
+    const oldIssues: ValidationIssue[] = (document.validation?.issues ?? [])
+      .filter((issue) => issue.code !== 'REFERENCE_SCALE_MISSING')
+      .map((issue) => ({
         id: issue.id,
         code: issue.code,
         severity: issue.level,
@@ -232,7 +236,12 @@ function IssueItem({
       >
         {issue.severity === 'error' ? '✕' : issue.severity === 'warning' ? '⚠' : 'ℹ'}
       </span>
-      <span className={styles.issueMessage}>{message}</span>
+      <span className={styles.issueText}>
+        <span className={styles.issueMessage}>{message}</span>
+        {suggestion && (
+          <span className={styles.fixSuggestion}>建议：{suggestion}</span>
+        )}
+      </span>
       {issue.entity_type && issue.entity_id && (
         <span className={styles.entityRef}>
           {issue.entity_type}:{issue.entity_id.slice(0, 8)}

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyBuilding } from '../../src/editor/domain/buildingDocument.ts';
-import { validateBuildingDocumentFull } from '../../src/editor/domain/buildingValidation.ts';
+import {
+  getValidationMessageZh,
+  validateBuildingDocumentFull,
+} from '../../src/editor/domain/buildingValidation.ts';
+import { computeBuildingStatistics } from '../../src/editor/domain/buildingStatistics.ts';
 import { deriveRelations } from '../../src/editor/connectivity/deriveRelations.ts';
 
 function squareDocument() {
@@ -50,6 +54,15 @@ function wall(start_vertex_id: string, end_vertex_id: string) {
 }
 
 describe('validateBuildingDocumentFull', () => {
+  it('does not require reference-image scale calibration', () => {
+    const document = squareDocument();
+    delete document.reference_calibration;
+
+    expect(validateBuildingDocumentFull(document).map((issue) => issue.code))
+      .not.toContain('REFERENCE_SCALE_MISSING');
+    expect(computeBuildingStatistics(document).geometry_progress).toBe(100);
+  });
+
   it('accepts the domain model implicit polygon closure', () => {
     const issues = validateBuildingDocumentFull(squareDocument());
 
@@ -148,5 +161,39 @@ describe('validateBuildingDocumentFull', () => {
         }),
       ]),
     );
+  });
+
+  it('warns when the survey bay count and detected indoor faces differ', () => {
+    const document = squareDocument();
+    document.survey = {
+      village_code: '1',
+      household_code: '1',
+      bay_count: 4,
+    };
+
+    const issue = validateBuildingDocumentFull(document).find(
+      (item) => item.code === 'BAY_FACE_COUNT_MISMATCH',
+    );
+
+    expect(issue).toMatchObject({
+      severity: 'warning',
+      category: 'topology',
+      message_params: { bay_count: 4, face_count: 1 },
+    });
+    expect(getValidationMessageZh(issue!)).toBe(
+      '开间数为 4，当前检索到 1 个室内面',
+    );
+  });
+
+  it('does not warn for matching counts or a survey-only project', () => {
+    const matching = squareDocument();
+    matching.survey = { village_code: '1', household_code: '1', bay_count: 1 };
+    expect(validateBuildingDocumentFull(matching).map((item) => item.code))
+      .not.toContain('BAY_FACE_COUNT_MISMATCH');
+
+    const surveyOnly = createEmptyBuilding('survey', '');
+    surveyOnly.survey = { village_code: '1', household_code: '2', bay_count: 4 };
+    expect(validateBuildingDocumentFull(surveyOnly).map((item) => item.code))
+      .not.toContain('BAY_FACE_COUNT_MISMATCH');
   });
 });

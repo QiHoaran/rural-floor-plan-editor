@@ -5,6 +5,7 @@ export interface ServerConfig {
   dataRoot: string;
   port: number;
   development: boolean;
+  folderOpener?: (directory: string) => Promise<void>;
 }
 
 export function createServerConfig(

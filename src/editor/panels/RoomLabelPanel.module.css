@@ -112,6 +112,54 @@
   text-align: center;
 }
 
+.templateForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  gap: 6px;
+  padding: 0 12px 8px;
+}
+
+.templateForm input,
+.templateForm button {
+  min-width: 0;
+}
+
+.templateForm input[type='color'] {
+  width: 36px;
+  height: 32px;
+  padding: 2px;
+}
+
+.templateForm button {
+  padding: 6px 8px;
+}
+
+.templateList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 12px;
+}
+
+.templateItem {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.templateItem button {
+  padding: 3px 6px;
+  font-size: 11px;
+}
+
+.templateError {
+  margin: 8px 12px 0;
+  color: #b91c1c;
+  font-size: 11px;
+}
+
 .actions {
   display: flex;
   flex-direction: column;

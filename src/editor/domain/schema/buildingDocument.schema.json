@@ -51,6 +51,31 @@
         }
       }
     },
+    "survey": {
+      "type": "object",
+      "required": ["village_code", "household_code"],
+      "properties": {
+        "village_code": { "type": "string" },
+        "household_code": { "type": "string" },
+        "gender": { "type": "string", "enum": ["男性", "女性"] },
+        "age": { "type": "integer", "minimum": 0 },
+        "resident_count": { "type": "integer", "minimum": 0 },
+        "family_structure": { "type": "string", "enum": ["两人户（年轻夫妻）", "两人户（老年夫妻）", "中年夫妻 + 未婚子女", "老年夫妻 + 已婚子女", "三代户", "隔代户（老年夫妻 + 隔代儿童）", "独居"] },
+        "annual_income": { "type": "string", "enum": ["小于 10000", "10000–20000", "20001–30000", "30001–40000", "40000–50000", "50001 以上"] },
+        "primary_income_source": { "type": "string", "enum": ["养殖", "种田", "果林", "经商", "打工", "其他副业"] },
+        "construction_era": { "type": "string", "enum": ["不确定", "1950 年代", "1960 年代", "1970 年代", "1980 年代", "1990 年代", "2000 年及以后", "1940 年代", "1930 年代", "1920 年代及以前"] },
+        "building_area": { "type": "string", "enum": ["20–30 ㎡", "30–40 ㎡", "40–50 ㎡", "50–60 ㎡", "60–70 ㎡", "70–80 ㎡", "80–90 ㎡", "90–100 ㎡", "100–110 ㎡"] },
+        "clear_height_mm": { "type": "integer", "minimum": 0 },
+        "plan_form": { "type": "string", "enum": ["一字型", "L 型", "U 型", "回字型", "其他"] },
+        "building_structure": { "type": "string", "enum": ["土坯结构", "砖瓦结构", "砖混结构", "钢筋混凝土结构", "石结构"] },
+        "main_room_bay_mm": { "type": "integer", "minimum": 0 },
+        "main_room_width_mm": { "type": "integer", "minimum": 0 },
+        "wing_room_bay_mm": { "type": "integer", "minimum": 0 },
+        "wing_room_width_mm": { "type": "integer", "minimum": 0 },
+        "bay_count": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
     "site": {
       "type": "object",
       "required": ["north_angle_deg"],

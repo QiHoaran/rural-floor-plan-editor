@@ -6,7 +6,10 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ProjectService } from '../../server/projectService.ts';
 import { ServiceError } from '../../server/errors.ts';
-import { validateForOperation } from '../../server/validationService.ts';
+import {
+  checkResearchExportRequirements,
+  validateForOperation,
+} from '../../server/validationService.ts';
 import type { BuildingDocument } from '../../src/editor/domain/buildingTypes.ts';
 
 /**
@@ -340,25 +343,35 @@ describe('ProjectService — 校验集成', () => {
   // ============================================================
 
   describe('exportToZip', () => {
-    it('拒绝缺少比例标定和北向的文档（research_export 要求）', async () => {
+    it('允许未做比例标定的文档通过 research_export 额外检查', () => {
+      const doc = makeValidDocument({
+        reference_calibration: undefined,
+        metadata: {
+          ...makeValidDocument().metadata,
+          village_code: '001',
+        },
+      });
+
+      expect(checkResearchExportRequirements(doc)).toEqual([]);
+    });
+
+    it('允许导出未做比例标定的文档', async () => {
       await createProject();
       const doc = makeValidDocument({
         reference_calibration: undefined,
         site: { north_angle_deg: 0 },
         metadata: {
           ...makeValidDocument().metadata,
+          village_code: '001',
           revision: 1,
         },
         workflow: { status: 'draft' },
       } as Partial<BuildingDocument>);
       await service.autosave('test_0001', doc);
 
-      await expect(
-        service.exportToZip('test_0001'),
-      ).rejects.toMatchObject<Partial<ServiceError>>({
-        status: 422,
-        code: 'RESEARCH_EXPORT_REQUIREMENTS_NOT_MET',
-      });
+      await expect(service.exportToZip('test_0001')).resolves.toMatch(
+        /test_0001\.zip$/,
+      );
     });
 
     it('拒绝存在 Schema 错误的文档', async () => {

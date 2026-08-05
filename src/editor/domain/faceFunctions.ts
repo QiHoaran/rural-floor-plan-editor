@@ -8,7 +8,7 @@ import type {
   BuildingFace,
   CustomFunctionType,
 } from './buildingTypes.ts';
-import { ROOM_FUNCTION_DICTIONARY } from './constants.ts';
+import { CORE_ROOM_FUNCTION_PRESETS } from './roomFunctionTemplates.ts';
 
 export interface FaceFunctionType {
   code: string;
@@ -18,7 +18,7 @@ export interface FaceFunctionType {
 
 /** 预设功能类型（从字典生成，保留兼容） */
 export const RURAL_FACE_FUNCTION_PRESETS: readonly FaceFunctionType[] =
-  ROOM_FUNCTION_DICTIONARY.map((entry) => ({
+  CORE_ROOM_FUNCTION_PRESETS.map((entry) => ({
     code: entry.code,
     name: entry.name,
     color: entry.color,

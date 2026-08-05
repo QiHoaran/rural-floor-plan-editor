@@ -125,9 +125,23 @@
   margin-top: 1px;
 }
 
-.issueMessage {
+.issueText {
   flex: 1;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.issueMessage {
   color: #1e293b;
+  word-break: break-word;
+}
+
+.fixSuggestion {
+  color: #64748b;
+  font-size: 10px;
+  line-height: 1.35;
   word-break: break-word;
 }
 

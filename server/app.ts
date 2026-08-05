@@ -8,14 +8,18 @@ import type { ServerConfig } from './config.js';
 import { ServiceError } from './errors.js';
 import { ProjectService } from './projectService.js';
 import { createProjectRouter } from './routes/projects.js';
+import { createSettingsRouter } from './routes/settings.js';
+import { RoomFunctionTemplateService } from './roomFunctionTemplateService.js';
 
 export async function createApp(config: ServerConfig): Promise<Express> {
   const app = express();
-  const projectService = new ProjectService(config.dataRoot);
+  const projectService = new ProjectService(config.dataRoot, config.folderOpener);
+  const templateService = new RoomFunctionTemplateService(config.dataRoot);
   await projectService.ensureDirectories();
 
   app.use(express.json({ limit: '15mb' }));
   app.use('/api/projects', createProjectRouter(projectService));
+  app.use('/api/settings', createSettingsRouter(templateService));
 
   if (config.development) {
     const vite = await createViteServer({

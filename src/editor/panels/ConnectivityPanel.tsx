@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useEditorStore } from '@/editor/store/editorStore.ts';
 import { updateWallElement } from '@/editor/commands/wallElementCommand.ts';
-import { WALL_ELEMENT_SIZE_PRESETS_MM } from '@/editor/domain/constants.ts';
+import {
+  formatWallElementDimensions,
+  parseWallElementDimensions,
+} from '@/editor/domain/wallElementDimensions.ts';
 import styles from './EditablePropertyPanel.module.css';
 
 export function ConnectivityPanel({ elementId }: { elementId: string }) {
@@ -9,79 +12,61 @@ export function ConnectivityPanel({ elementId }: { elementId: string }) {
   const transact = useEditorStore((state) => state.transact);
   const element = document.wall_elements[elementId];
   const relation = document.relations.find((item) => item.wall_element_id === elementId);
-  const [values, setValues] = useState({
-    offset_from_start_mm: String(element.offset_from_start_mm / 1000),
-    width_mm: String(element.width_mm / 1000),
-    height_mm: String(element.height_mm / 1000),
-    sill_height_mm: String(element.sill_height_mm / 1000),
-  });
+  const [dimensions, setDimensions] = useState(
+    formatWallElementDimensions(element.width_mm, element.height_mm),
+  );
   const [error, setError] = useState('');
-  const focusedProperty = useRef<keyof typeof values | null>(null);
+  const editingDimensions = useRef(false);
   const previousElementId = useRef(elementId);
 
   useEffect(() => {
-    const stored = {
-      offset_from_start_mm: String(element.offset_from_start_mm / 1000),
-      width_mm: String(element.width_mm / 1000),
-      height_mm: String(element.height_mm / 1000),
-      sill_height_mm: String(element.sill_height_mm / 1000),
-    };
+    const stored = formatWallElementDimensions(
+      element.width_mm,
+      element.height_mm,
+    );
     const changedElement = previousElementId.current !== elementId;
     previousElementId.current = elementId;
-    setValues((current) => {
-      if (changedElement || focusedProperty.current === null) return stored;
-      return {
-        ...stored,
-        [focusedProperty.current]: current[focusedProperty.current],
-      };
-    });
+    if (changedElement || !editingDimensions.current) setDimensions(stored);
     if (changedElement) {
-      focusedProperty.current = null;
+      editingDimensions.current = false;
       setError('');
     }
   }, [
     elementId,
-    element.offset_from_start_mm,
     element.width_mm,
     element.height_mm,
-    element.sill_height_mm,
   ]);
 
-  const commit = (
-    property: keyof typeof values,
-    label: string,
-    explicitMillimeters?: number,
-  ) => {
-    const millimeters =
-      explicitMillimeters ?? Math.round(Number(values[property]) * 1000);
-    focusedProperty.current = null;
+  const commitDimensions = () => {
+    editingDimensions.current = false;
+    const parsed = parseWallElementDimensions(dimensions);
+    if (!parsed.ok) {
+      setError(parsed.message);
+      return;
+    }
     const currentDocument = useEditorStore.getState().buildingDocument;
     const currentElement = currentDocument?.wall_elements[elementId];
     if (!currentDocument || !currentElement) return;
-    if (currentElement[property] === millimeters) {
-      setValues((current) => ({
-        ...current,
-        [property]: String(millimeters / 1000),
-      }));
+    if (
+      currentElement.width_mm === parsed.widthMm &&
+      currentElement.height_mm === parsed.heightMm
+    ) {
+      setDimensions(parsed.normalized);
       setError('');
       return;
     }
     const result = updateWallElement(currentDocument, elementId, {
-      [property]: millimeters,
+      width_mm: parsed.widthMm,
+      height_mm: parsed.heightMm,
     });
     if (!result.ok) {
       setError(result.message);
       return;
     }
-    transact(`Edit wall element ${label}`, () => result.document);
-    setValues((current) => ({ ...current, [property]: String(millimeters / 1000) }));
+    transact('修改门窗宽度和高度', () => result.document);
+    setDimensions(parsed.normalized);
     setError('');
   };
-  const fields = [
-    ['offset_from_start_mm', 'Offset (m)'],
-    ['height_mm', 'Height (m)'],
-    ['sill_height_mm', 'Sill (m)'],
-  ] as const;
   return <aside className={styles.panel}>
     <div className={styles.header}>Wall element</div>
     <div className={styles.content}>
@@ -89,39 +74,17 @@ export function ConnectivityPanel({ elementId }: { elementId: string }) {
       <div>{element.element_type}</div>
       <div>Host: {element.host_wall_id}</div>
       <div>Status: {element.status}</div>
-      <div className={styles.field}>
-        <span>尺寸 (m)</span>
-        <div className={styles.sizePresets} role="group" aria-label="尺寸预设">
-          {WALL_ELEMENT_SIZE_PRESETS_MM.map((millimeters) => {
-            const meters = millimeters / 1000;
-            const active = millimeters === element.width_mm;
-            return <button
-              key={millimeters}
-              type="button"
-              className={active ? styles.sizePresetActive : undefined}
-              aria-pressed={active}
-              onClick={() => commit('width_mm', 'Size', millimeters)}
-            >{meters}</button>;
-          })}
-        </div>
-        <input aria-label="尺寸 (m)" inputMode="decimal" value={values.width_mm}
-          onFocus={() => { focusedProperty.current = 'width_mm'; }}
-          onChange={(event) => setValues((current) => ({ ...current, width_mm: event.target.value }))}
-          onBlur={() => commit('width_mm', 'Size')}
+      <label className={styles.field}>
+        <span>尺寸（宽×高，米）</span>
+        <input aria-label="尺寸（宽×高，米）" value={dimensions}
+          placeholder="1.0×2.1"
+          onFocus={() => { editingDimensions.current = true; }}
+          onChange={(event) => setDimensions(event.target.value)}
+          onBlur={commitDimensions}
           onKeyDown={(event) => {
             if (event.key === 'Enter') event.currentTarget.blur();
           }} />
-      </div>
-      {fields.map(([property, label]) => <label className={styles.field} key={property}>
-        <span>{label}</span>
-        <input aria-label={label} inputMode="decimal" value={values[property]}
-          onFocus={() => { focusedProperty.current = property; }}
-          onChange={(event) => setValues((current) => ({ ...current, [property]: event.target.value }))}
-          onBlur={() => commit(property, label)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') event.currentTarget.blur();
-          }} />
-      </label>)}
+      </label>
       {relation && <div>
         {relation.relation_type}: {relation.from_face_id} →{' '}
         {relation.to.kind === 'outside' ? 'outside' : relation.to.face_id}
