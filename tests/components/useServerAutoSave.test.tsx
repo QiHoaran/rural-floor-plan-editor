@@ -56,7 +56,7 @@ describe('useServerAutoSave', () => {
 
     expect(projectApi.autosaveProject).toHaveBeenCalledTimes(1);
     expect(onSaving).toHaveBeenCalledTimes(1);
-    expect(onSaved).toHaveBeenCalledWith(saved);
+    expect(onSaved).toHaveBeenCalledWith(saved, 1);
     expect(onError).not.toHaveBeenCalled();
   });
 
@@ -132,5 +132,58 @@ describe('useServerAutoSave', () => {
     });
 
     expect(projectApi.autosaveProject).toHaveBeenCalledTimes(1);
+  });
+
+  it('serializes a newer edit behind an in-flight save and rebases its revision', async () => {
+    vi.useFakeTimers();
+    const first = createEmptyBuilding('house_0001', 'reference/original.png');
+    const second = {
+      ...first,
+      vertices: { newest: { x_mm: 2, y_mm: 2 } },
+    };
+    let resolveFirst!: (document: typeof first) => void;
+    vi.mocked(projectApi.autosaveProject)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(async (document) => ({
+        ...document,
+        metadata: { ...document.metadata, revision: 2 },
+      }));
+
+    const { rerender } = renderHook(
+      ({ currentDocument, changeVersion }) =>
+        useServerAutoSave({
+          buildingId: 'house_0001',
+          document: currentDocument,
+          changeVersion,
+          onSaving: vi.fn(),
+          onSaved: (saved, savedVersion) =>
+            savedVersion === changeVersion
+              ? saved
+              : {
+                  ...currentDocument,
+                  metadata: {
+                    ...currentDocument.metadata,
+                    revision: saved.metadata.revision,
+                    updated_at: saved.metadata.updated_at,
+                  },
+                },
+          onError: vi.fn(),
+        }),
+      { initialProps: { currentDocument: first, changeVersion: 1 } },
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(800); });
+    rerender({ currentDocument: second, changeVersion: 2 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(800); });
+    expect(projectApi.autosaveProject).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveFirst({ ...first, metadata: { ...first.metadata, revision: 1 } });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(projectApi.autosaveProject).toHaveBeenCalledTimes(2);
+    const queuedDocument = vi.mocked(projectApi.autosaveProject).mock.calls[1][1];
+    expect(queuedDocument.metadata.revision).toBe(1);
+    expect(queuedDocument.vertices.newest).toEqual({ x_mm: 2, y_mm: 2 });
   });
 });

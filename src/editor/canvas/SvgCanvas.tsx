@@ -25,6 +25,7 @@ import {
   type ReferencePoint,
 } from '@/editor/reference-image/referenceTransform.ts';
 import {
+  fitWorldPoints,
   panBy,
   screenToWorld,
   zoomAt,
@@ -55,6 +56,7 @@ import {
 } from '@/editor/cad/snapEngine.ts';
 import styles from './SvgCanvas.module.css';
 import { ROOM_FUNCTION_DICTIONARY } from '@/editor/domain/constants.ts';
+import { resolveWallElementPlacement } from '@/editor/domain/wallElementPlacement.ts';
 import {
   CORE_ROOM_FUNCTION_PRESETS,
   mergeRoomFunctionTypes,
@@ -62,9 +64,18 @@ import {
 
 const DEFAULT_SIZE: CanvasSize = { width: 800, height: 600 };
 
-export function SvgCanvas() {
+interface SvgCanvasProps {
+  handleHistoryShortcuts?: boolean;
+  autoFitReference?: boolean;
+}
+
+export function SvgCanvas({
+  handleHistoryShortcuts = true,
+  autoFitReference = true,
+}: SvgCanvasProps = {}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState(DEFAULT_SIZE);
+  const [sizeReady, setSizeReady] = useState(false);
   const [command, setCommand] = useState<WallCommandState>(
     createIdleWallCommand,
   );
@@ -80,7 +91,13 @@ export function SvgCanvas() {
     y: number;
   } | null>(null);
   const spacePressed = useRef(false);
+  const spaceGesture = useRef({
+    downAt: 0,
+    lastTapAt: 0,
+    usedForPan: false,
+  });
   const altPressed = useRef(false);
+  const fittedReferenceKey = useRef<string | null>(null);
   const expectedInternalDocument = useRef<BuildingDocument | null>(null);
   const referenceDrag = useRef<ReferenceDragState | null>(null);
   const vertexDrag = useRef<{
@@ -92,6 +109,7 @@ export function SvgCanvas() {
   const commitCommandRef = useRef<(current: WallCommandState) => void>(
     () => undefined,
   );
+  const duplicateLastWallRef = useRef<() => void>(() => undefined);
   const [vertexDragPreview, setVertexDragPreview] =
     useState<BuildingVertex | null>(null);
 
@@ -119,11 +137,31 @@ export function SvgCanvas() {
         width: rect?.width || DEFAULT_SIZE.width,
         height: rect?.height || DEFAULT_SIZE.height,
       });
+      setSizeReady(true);
     };
     updateSize();
     window.addEventListener('resize', updateSize);
     return () => window.removeEventListener('resize', updateSize);
   }, []);
+
+  useEffect(() => {
+    if (!autoFitReference || !document || !sizeReady) return;
+    const image = document.reference_image;
+    if (!image.path || image.width_px <= 0 || image.height_px <= 0) return;
+    const key = `${document.building_id}:${image.path}:${image.width_px}x${image.height_px}`;
+    if (fittedReferenceKey.current === key) return;
+    const corners = [
+      { x: 0, y: 0 },
+      { x: image.width_px, y: 0 },
+      { x: image.width_px, y: image.height_px },
+      { x: 0, y: image.height_px },
+    ].map((point) => {
+      const world = referenceLocalToWorld(image.transform, point);
+      return { x_mm: world.x, y_mm: world.y };
+    });
+    setViewport(fitWorldPoints(corners, size, 0.8));
+    fittedReferenceKey.current = key;
+  }, [autoFitReference, document, setViewport, size, sizeReady]);
 
   useEffect(() => {
     setCommand(createIdleWallCommand());
@@ -167,6 +205,10 @@ export function SvgCanvas() {
         return;
       }
       if (event.code === 'Space') {
+        if (!event.repeat && !spacePressed.current) {
+          spaceGesture.current.downAt = Date.now();
+          spaceGesture.current.usedForPan = false;
+        }
         spacePressed.current = true;
         event.preventDefault();
         return;
@@ -232,13 +274,18 @@ export function SvgCanvas() {
 
         if (event.key === 'Delete') return;
       }
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+      if (
+        handleHistoryShortcuts &&
+        (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === 'z'
+      ) {
         event.preventDefault();
         if (event.shiftKey) redo();
         else undo();
         return;
       }
       if (
+        handleHistoryShortcuts &&
         (event.ctrlKey || event.metaKey) &&
         event.key.toLowerCase() === 'y'
       ) {
@@ -301,11 +348,36 @@ export function SvgCanvas() {
       }
     };
     const handleKeyUp = (event: KeyboardEvent) => {
-      if (event.code === 'Space') spacePressed.current = false;
+      if (event.code === 'Space') {
+        const now = Date.now();
+        const isTap =
+          spacePressed.current &&
+          !spaceGesture.current.usedForPan &&
+          now - spaceGesture.current.downAt <= 300;
+        spacePressed.current = false;
+        if (isTap) {
+          if (
+            spaceGesture.current.lastTapAt > 0 &&
+            now - spaceGesture.current.lastTapAt <= 400
+          ) {
+            spaceGesture.current.lastTapAt = 0;
+            duplicateLastWallRef.current();
+          } else {
+            spaceGesture.current.lastTapAt = now;
+          }
+        } else {
+          spaceGesture.current.lastTapAt = 0;
+        }
+      }
       if (event.key === 'Alt') altPressed.current = false;
     };
     const handleWindowBlur = () => {
       spacePressed.current = false;
+      spaceGesture.current = {
+        downAt: 0,
+        lastTapAt: 0,
+        usedForPan: false,
+      };
       altPressed.current = false;
       expectedInternalDocument.current = null;
       panState.current = null;
@@ -328,6 +400,7 @@ export function SvgCanvas() {
   }, [
     command,
     document,
+    handleHistoryShortcuts,
     redo,
     setSelection,
     tool,
@@ -384,14 +457,10 @@ export function SvgCanvas() {
       : { point: snap.point, snap };
   };
 
-  const commitCommand = (current: WallCommandState) => {
-    const latestDocument =
-      useEditorStore.getState().buildingDocument;
-    const result = reduceWallCommand(
-      current,
-      { type: 'CONFIRM' },
-      makeContext(latestDocument, tool),
-    );
+  const applyWallCommandResult = (
+    current: WallCommandState,
+    result: ReturnType<typeof reduceWallCommand>,
+  ) => {
     if (result.transaction) {
       let appliedDocument: BuildingDocument | undefined;
       try {
@@ -423,7 +492,66 @@ export function SvgCanvas() {
     setCommand(result.state);
     setCommandError(result.error);
   };
+
+  const wallElementPlacementAt = (
+    point: BuildingVertex,
+    elementType: WallElementType,
+  ) => {
+    const projected = nearestWallProjection(
+      document,
+      point,
+      14 / viewport.pixelsPerMm,
+    );
+    if (!projected) return null;
+    const wall = document.walls[projected.wallId];
+    const start = wall && document.vertices[wall.start_vertex_id];
+    const end = wall && document.vertices[wall.end_vertex_id];
+    if (!start || !end) return null;
+    const length = Math.hypot(end.x_mm - start.x_mm, end.y_mm - start.y_mm);
+    const defaults = WALL_ELEMENT_DEFAULTS[elementType];
+    const placement = resolveWallElementPlacement(
+      length,
+      defaults.width_mm,
+      projected.offsetMm,
+      14 / viewport.pixelsPerMm,
+    );
+    const ux = (end.x_mm - start.x_mm) / length;
+    const uy = (end.y_mm - start.y_mm) / length;
+    return {
+      wallId: projected.wallId,
+      defaults,
+      placement,
+      point: {
+        x_mm: Math.round(start.x_mm + ux * placement.centerOffsetMm),
+        y_mm: Math.round(start.y_mm + uy * placement.centerOffsetMm),
+      },
+    };
+  };
+  const commitCommand = (current: WallCommandState) => {
+    const latestDocument =
+      useEditorStore.getState().buildingDocument;
+    applyWallCommandResult(
+      current,
+      reduceWallCommand(
+        current,
+        { type: 'CONFIRM' },
+        makeContext(latestDocument, tool),
+      ),
+    );
+  };
   commitCommandRef.current = commitCommand;
+  duplicateLastWallRef.current = () => {
+    if (tool !== 'exterior_wall' || command.phase !== 'idle') return;
+    const latestDocument = useEditorStore.getState().buildingDocument;
+    applyWallCommandResult(
+      command,
+      reduceWallCommand(
+        command,
+        { type: 'DUPLICATE_LAST' },
+        makeContext(latestDocument, tool),
+      ),
+    );
+  };
 
   const handleStartVertexDrag = (
     vertexId: string,
@@ -482,6 +610,7 @@ export function SvgCanvas() {
     event: ReactPointerEvent<SVGSVGElement>,
   ) => {
     if (event.button === 1 || spacePressed.current) {
+      if (spacePressed.current) spaceGesture.current.usedForPan = true;
       panState.current = {
         pointerId: event.pointerId,
         x: event.clientX,
@@ -492,27 +621,33 @@ export function SvgCanvas() {
     }
     if (!isWallTool(tool)) {
       if (isWallElementTool(tool)) {
-        const projected = nearestWallProjection(
-          document,
+        const resolved = wallElementPlacementAt(
           eventWorldPoint(event.nativeEvent),
-          14 / viewport.pixelsPerMm,
+          tool,
         );
-        if (!projected) {
+        if (!resolved) {
           setCommandError('请在墙体上放置构件。');
           return;
         }
-        const defaults = WALL_ELEMENT_DEFAULTS[tool];
         const placement = placeWallElement(document, {
           element_type: tool,
-          host_wall_id: projected.wallId,
-          center_offset_mm: Math.round(projected.offsetMm),
-          ...defaults,
+          host_wall_id: resolved.wallId,
+          center_offset_mm: resolved.placement.centerOffsetMm,
+          ...resolved.defaults,
         });
         if (!placement.ok) {
           setCommandError(placement.message);
           return;
         }
         transact(`Place ${tool}`, () => placement.document);
+        if (resolved.placement.fraction) {
+          setCurrentSnap({
+            kind: 'wall_fraction',
+            point: resolved.point,
+            wallId: resolved.wallId,
+            fraction: resolved.placement.fraction,
+          });
+        }
         setCommandError(null);
         return;
       }
@@ -604,6 +739,31 @@ export function SvgCanvas() {
               point.x_mm - drag.start.x_mm,
               point.y_mm - drag.start.y_mm,
             ),
+      );
+      return;
+    }
+    if (isWallElementTool(tool)) {
+      const resolved = wallElementPlacementAt(
+        eventWorldPoint(event.nativeEvent),
+        tool,
+      );
+      if (!resolved) {
+        setCurrentSnap({ kind: 'none' });
+        return;
+      }
+      setCurrentSnap(
+        resolved.placement.fraction
+          ? {
+              kind: 'wall_fraction',
+              point: resolved.point,
+              wallId: resolved.wallId,
+              fraction: resolved.placement.fraction,
+            }
+          : {
+              kind: 'wall_projection',
+              point: resolved.point,
+              wallId: resolved.wallId,
+            },
       );
       return;
     }
@@ -813,6 +973,7 @@ export function SvgCanvas() {
               transact(`Move wall element ${elementId}`, () => result.document);
               setCommandError(null);
             }}
+            onSnapChange={setCurrentSnap}
           />
           <VertexLayer
             document={document}

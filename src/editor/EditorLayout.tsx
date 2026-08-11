@@ -23,6 +23,11 @@ import {
 } from '@/api/projectApi.ts';
 import { getNextUnlabeledFaceId } from '@/editor/domain/buildingStatistics.ts';
 import { ROOM_SHORTCUT_MAP } from '@/editor/domain/constants.ts';
+import {
+  applyBuildingTemplate,
+  type BuildingTemplateInput,
+} from '@/editor/domain/buildingTemplate.ts';
+import { BuildingTemplateDialog } from '@/editor/dialogs/BuildingTemplateDialog.tsx';
 import styles from './EditorLayout.module.css';
 
 interface EditorLayoutProps {
@@ -48,6 +53,7 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
   const setTool = useEditorStore((state) => state.setTool);
   const setBrushCode = useEditorStore((state) => state.setBrushFunctionCode);
   const setSelection = useEditorStore((state) => state.setSelection);
+  const transact = useEditorStore((state) => state.transact);
 
   const [exportScale, setExportScale] = useState('1:200');
   const [exportScaleBar, setExportScaleBar] = useState(false);
@@ -56,13 +62,16 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
   const [workflowError, setWorkflowError] = useState<string | null>(null);
   const [deliveryBusy, setDeliveryBusy] = useState(false);
   const [folderBusy, setFolderBusy] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [templateError, setTemplateError] = useState('');
 
   useServerAutoSave({
     buildingId: buildingDocument?.building_id ?? null,
     document: buildingDocument,
     changeVersion,
     onSaving: beginSave,
-    onSaved: finishSave,
+    onSaved: (saved, savedChangeVersion) =>
+      finishSave(saved, savedChangeVersion),
     onError: (error) => {
       if (error instanceof ApiError && error.code === 'REVISION_CONFLICT') {
         conflictSave(error.message);
@@ -256,6 +265,34 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
     }
   };
 
+  const handleApplyTemplate = (input: BuildingTemplateInput) => {
+    const current = useEditorStore.getState().buildingDocument;
+    if (!current) return;
+    const hasGeometry =
+      Object.keys(current.vertices).length > 0 ||
+      Object.keys(current.walls).length > 0 ||
+      Object.keys(current.wall_elements).length > 0 ||
+      Object.keys(current.faces).length > 0;
+    if (
+      hasGeometry &&
+      !confirm(
+        '当前项目已有草图。应用模板将清空现有墙体、房间和墙上构件，但会保留参考图、调查属性和元数据。确认替换吗？',
+      )
+    ) {
+      return;
+    }
+    const result = applyBuildingTemplate(current, input);
+    if (!result.ok) {
+      setTemplateError(result.message);
+      return;
+    }
+    transact('应用建筑草图模板', () => result.document);
+    setSelection(null);
+    setTool('select');
+    setTemplateError('');
+    setTemplateOpen(false);
+  };
+
   return (
     <div className={styles.container}>
       {/* 顶部工具栏 */}
@@ -279,6 +316,17 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
           title="在系统文件管理器中打开当前建筑目录"
         >
           {folderBusy ? '正在打开…' : '📁 打开文件夹'}
+        </button>
+        <button
+          className={styles.headerBtnSecondary}
+          onClick={() => {
+            setTemplateError('');
+            setTemplateOpen(true);
+          }}
+          disabled={isReadOnly}
+          title="按面宽、深度和房间数生成墙体草图"
+        >
+          ▦ 建筑模板
         </button>
 
         {/* 工作流按钮 */}
@@ -410,7 +458,7 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
       <div className={styles.body}>
         <Toolbar />
         <div className={styles.mapArea}>
-          <SvgCanvas />
+          <SvgCanvas handleHistoryShortcuts={false} />
         </div>
 
         {/* 右侧面板切换 */}
@@ -445,6 +493,15 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
 
       {/* 底部状态栏 */}
       <StatusBar />
+      <BuildingTemplateDialog
+        open={templateOpen}
+        error={templateError}
+        onClose={() => {
+          setTemplateOpen(false);
+          setTemplateError('');
+        }}
+        onApply={handleApplyTemplate}
+      />
     </div>
   );
 }

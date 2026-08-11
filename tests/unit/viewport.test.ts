@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  fitWorldPoints,
   panBy,
   screenToWorld,
   worldToScreen,
@@ -47,6 +48,26 @@ describe('SVG viewport transforms', () => {
       originXmm: -200,
       originYmm: 100,
       pixelsPerMm: 0.2,
+    });
+  });
+
+  it('fits world points into eighty percent of the canvas', () => {
+    const fitted = fitWorldPoints(
+      [
+        { x_mm: 1000, y_mm: 2000 },
+        { x_mm: 5000, y_mm: 4000 },
+      ],
+      { width: 1000, height: 600 },
+      0.8,
+    );
+    expect(fitted.pixelsPerMm).toBeCloseTo(0.2);
+    expect(worldToScreen({ x_mm: 1000, y_mm: 2000 }, fitted, size)).toEqual({
+      x: 100,
+      y: 500,
+    });
+    expect(worldToScreen({ x_mm: 5000, y_mm: 4000 }, fitted, size)).toEqual({
+      x: 900,
+      y: 100,
     });
   });
 });

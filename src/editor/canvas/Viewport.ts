@@ -77,6 +77,41 @@ export function panBy(
   };
 }
 
+/** 将世界坐标点居中放入画布；viewport 不会写入 Building JSON。 */
+export function fitWorldPoints(
+  points: readonly BuildingVertex[],
+  size: CanvasSize,
+  fillRatio = 0.8,
+): Viewport {
+  if (points.length === 0) {
+    return { originXmm: 0, originYmm: 0, pixelsPerMm: 0.1 };
+  }
+  const xs = points.map((point) => point.x_mm);
+  const ys = points.map((point) => point.y_mm);
+  const minimumX = Math.min(...xs);
+  const maximumX = Math.max(...xs);
+  const minimumY = Math.min(...ys);
+  const maximumY = Math.max(...ys);
+  const widthMm = Math.max(1, maximumX - minimumX);
+  const heightMm = Math.max(1, maximumY - minimumY);
+  const ratio = clamp(fillRatio, 0.1, 1);
+  const pixelsPerMm = clamp(
+    Math.min(
+      (size.width * ratio) / widthMm,
+      (size.height * ratio) / heightMm,
+    ),
+    MIN_PIXELS_PER_MM,
+    MAX_PIXELS_PER_MM,
+  );
+  const centerX = (minimumX + maximumX) / 2;
+  const centerY = (minimumY + maximumY) / 2;
+  return {
+    originXmm: centerX - size.width / pixelsPerMm / 2,
+    originYmm: centerY - size.height / pixelsPerMm / 2,
+    pixelsPerMm,
+  };
+}
+
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
 }

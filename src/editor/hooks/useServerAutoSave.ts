@@ -7,7 +7,10 @@ interface UseServerAutoSaveOptions {
   document: BuildingDocument | null;
   changeVersion: number;
   onSaving: () => void;
-  onSaved: (document: BuildingDocument) => void;
+  onSaved: (
+    document: BuildingDocument,
+    savedChangeVersion: number,
+  ) => BuildingDocument | null | void;
   onError: (error: unknown) => void;
   onConflict?: (serverRevision: number, clientRevision: number) => void;
 }
@@ -22,53 +25,87 @@ export function useServerAutoSave({
   onConflict,
 }: UseServerAutoSaveOptions): void {
   const documentRef = useRef(document);
+  const changeVersionRef = useRef(changeVersion);
+  const timerRef = useRef<number | null>(null);
+  const chainRef = useRef<Promise<void>>(Promise.resolve());
+  const generationRef = useRef(0);
+  const controllerRef = useRef<AbortController | null>(null);
   const callbacksRef = useRef({ onSaving, onSaved, onError, onConflict });
   documentRef.current = document;
+  changeVersionRef.current = changeVersion;
   callbacksRef.current = { onSaving, onSaved, onError, onConflict };
 
   useEffect(() => {
-    if (!buildingId || !documentRef.current || changeVersion === 0) return;
+    generationRef.current += 1;
+    const generation = generationRef.current;
+    chainRef.current = Promise.resolve();
+    return () => {
+      if (generationRef.current === generation) generationRef.current += 1;
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+      controllerRef.current?.abort();
+      controllerRef.current = null;
+    };
+  }, [buildingId]);
 
-    // 只自动保存 draft、pending_review 和 reviewed 状态
+  useEffect(() => {
+    if (!buildingId || !documentRef.current || changeVersion === 0) return;
     const status = documentRef.current.workflow?.status ??
       documentRef.current.metadata?.status;
     if (status === 'complete') return;
-
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      const documentToSave = documentRef.current;
-      if (!documentToSave) return;
-      callbacksRef.current.onSaving();
-      try {
-        const saved = await autosaveProject(
-          buildingId,
-          documentToSave,
-          controller.signal,
-        );
-        if (!controller.signal.aborted) {
-          callbacksRef.current.onSaved(saved);
-        }
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        if (
-          error instanceof ApiError &&
-          error.code === 'REVISION_CONFLICT'
-        ) {
-          // 版本冲突：停止自动保存
-          callbacksRef.current.onConflict?.(
-            // 从错误信息中提取 server revision（简化处理）
-            0, 0,
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    const generation = generationRef.current;
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      chainRef.current = chainRef.current.then(async () => {
+        if (generationRef.current !== generation) return;
+        const documentToSave = documentRef.current;
+        const versionToSave = changeVersionRef.current;
+        if (!documentToSave) return;
+        const controller = new AbortController();
+        controllerRef.current = controller;
+        callbacksRef.current.onSaving();
+        try {
+          const saved = await autosaveProject(
+            buildingId,
+            documentToSave,
+            controller.signal,
           );
+          if (
+            controller.signal.aborted ||
+            generationRef.current !== generation
+          ) {
+            return;
+          }
+          const reconciled = callbacksRef.current.onSaved(
+            saved,
+            versionToSave,
+          );
+          documentRef.current = reconciled ?? saved;
+        } catch (error) {
+          if (
+            controller.signal.aborted ||
+            generationRef.current !== generation
+          ) {
+            return;
+          }
+          if (
+            error instanceof ApiError &&
+            error.code === 'REVISION_CONFLICT'
+          ) {
+            callbacksRef.current.onConflict?.(0, 0);
+          }
           callbacksRef.current.onError(error);
-          return;
+        } finally {
+          if (controllerRef.current === controller) {
+            controllerRef.current = null;
+          }
         }
-        callbacksRef.current.onError(error);
-      }
+      });
     }, 800);
-
     return () => {
-      window.clearTimeout(timer);
-      controller.abort();
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+      timerRef.current = null;
     };
   }, [buildingId, changeVersion]);
 }

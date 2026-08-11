@@ -31,6 +31,7 @@ const SNAP_LABELS: Record<Exclude<SnapResult['kind'], 'none'>, string> = {
   vertex: '顶点',
   intersection: '交点',
   wall_projection: '墙上投影',
+  wall_fraction: '墙体分点',
   grid: '网格',
 };
 
@@ -97,7 +98,8 @@ export function CommandBar({
         command.continuation && <span>续画已激活</span>}
       {snap.kind !== 'none' && (
         <span data-testid="snap-status" aria-live="polite">
-          吸附：{SNAP_LABELS[snap.kind]} ({formatCoordinate(snap.point.x_mm)},{' '}
+          吸附：{SNAP_LABELS[snap.kind]}
+          {snap.kind === 'wall_fraction' ? ` ${snap.fraction}` : ''} ({formatCoordinate(snap.point.x_mm)},{' '}
           {formatCoordinate(snap.point.y_mm)})
         </span>
       )}

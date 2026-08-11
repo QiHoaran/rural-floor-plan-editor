@@ -104,7 +104,7 @@ describe('placeWallElement', () => {
 
   it.each([
     [{ width_mm: 0 }, 'INVALID_DIMENSIONS'],
-    [{ center_offset_mm: 500 }, 'OUT_OF_BOUNDS'],
+    [{ width_mm: 4000 }, 'OUT_OF_BOUNDS'],
     [{ host_wall_id: 'missing' }, 'HOST_MISSING'],
   ] as const)('rejects invalid input with %s', (override, code) => {
     const document = documentWithExteriorAndSharedWalls();
@@ -150,6 +150,35 @@ describe('placeWallElement', () => {
       height_mm: 2100,
       sill_height_mm: 0,
     })).toMatchObject({ ok: false, code: 'OVERLAP' });
+  });
+
+  it('places a 1.8 meter opening on a 2 meter wall with zero end clearance', () => {
+    const document = documentWithExteriorAndSharedWalls();
+    document.vertices.f = { x_mm: 0, y_mm: 2000 };
+    const centered = placeWallElement(document, {
+      element_type: 'exterior_window',
+      host_wall_id: 'exterior',
+      center_offset_mm: 1000,
+      width_mm: 1800,
+      height_mm: 1200,
+      sill_height_mm: 800,
+    });
+    expect(centered.ok).toBe(true);
+    if (!centered.ok) return;
+    expect(centered.document.wall_elements[centered.elementId].offset_from_start_mm).toBe(100);
+
+    const clamped = placeWallElement(document, {
+      element_type: 'exterior_window',
+      host_wall_id: 'exterior',
+      center_offset_mm: 100,
+      width_mm: 1800,
+      height_mm: 1200,
+      sill_height_mm: 800,
+    });
+    expect(clamped.ok).toBe(true);
+    if (clamped.ok) {
+      expect(clamped.document.wall_elements[clamped.elementId].offset_from_start_mm).toBe(0);
+    }
   });
 
   it('rejects exterior elements on shared walls and interior elements on exterior walls', () => {
@@ -198,7 +227,10 @@ describe('placeWallElement', () => {
       element_type: 'exterior_door', host_wall_id: 'missing',
       center_offset_mm: 1500, width_mm: 900, height_mm: 2100, sill_height_mm: 0,
     });
-    const bounds = place(base, 'exterior_door', 'exterior', 400);
+    const bounds = placeWallElement(base, {
+      element_type: 'exterior_door', host_wall_id: 'exterior',
+      center_offset_mm: 1500, width_mm: 4000, height_mm: 2100, sill_height_mm: 0,
+    });
     const side = place(base, 'interior_door', 'exterior');
     const first = place(base, 'exterior_door', 'exterior', 700);
     expect(first.ok).toBe(true);

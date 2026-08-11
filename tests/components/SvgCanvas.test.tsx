@@ -3,6 +3,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { SvgCanvas } from '../../src/editor/canvas/SvgCanvas.tsx';
@@ -41,7 +42,7 @@ describe('SvgCanvas', () => {
   });
 
   it('renders wall polygons with accessible hit lines', () => {
-    render(<SvgCanvas />);
+    render(<SvgCanvas autoFitReference={false} />);
 
     expect(screen.getByTestId('wall-polygon-w_1')).toBeTruthy();
     expect(screen.getByTestId('wall-hit-w_1')).toBeTruthy();
@@ -50,6 +51,22 @@ describe('SvgCanvas', () => {
     ).toBe(
       '/api/projects/house_0001/files/reference/original.png',
     );
+  });
+
+  it('fits a newly imported reference image without changing its transform', async () => {
+    const document = useEditorStore.getState().buildingDocument!;
+    document.reference_image.width_px = 1000;
+    document.reference_image.height_px = 500;
+    const originalTransform = structuredClone(document.reference_image.transform);
+    useEditorStore.getState().loadBuilding(document);
+    render(<SvgCanvas />);
+
+    await waitFor(() => {
+      expect(useEditorStore.getState().viewport.pixelsPerMm).toBeCloseTo(0.64);
+    });
+    expect(useEditorStore.getState().buildingDocument!.reference_image.transform)
+      .toEqual(originalTransform);
+    expect(useEditorStore.getState().undoStack).toHaveLength(0);
   });
 
   it('keeps the selected wall outline at a fixed three screen pixels', () => {
@@ -117,6 +134,39 @@ describe('SvgCanvas', () => {
     expect(addedWalls[0][1].end_vertex_id).toBe(
       addedWalls[1][1].start_vertex_id,
     );
+  });
+
+  it('duplicates the latest exterior wall after two quick Space taps', () => {
+    useEditorStore.getState().setTool('exterior_wall');
+    act(() => useEditorStore.getState().setSnapMode('none'));
+    render(<SvgCanvas />);
+    const canvas = screen.getByTestId('svg-canvas');
+    fireEvent.pointerDown(canvas, { clientX: 200, clientY: 400 });
+    fireEvent.pointerDown(canvas, { clientX: 300, clientY: 400 });
+    fireEvent.keyDown(window, { code: 'Space' });
+    fireEvent.keyUp(window, { code: 'Space' });
+    fireEvent.keyDown(window, { code: 'Space' });
+    fireEvent.keyUp(window, { code: 'Space' });
+
+    const document = useEditorStore.getState().buildingDocument!;
+    const added = Object.values(document.walls).filter((wall) => wall !== document.walls.w_1);
+    expect(added).toHaveLength(2);
+    const firstStart = document.vertices[added[0].start_vertex_id];
+    const firstEnd = document.vertices[added[0].end_vertex_id];
+    const secondStart = document.vertices[added[1].start_vertex_id];
+    const secondEnd = document.vertices[added[1].end_vertex_id];
+    expect(secondStart).toEqual(firstEnd);
+    expect(secondEnd.x_mm - secondStart.x_mm).toBe(firstEnd.x_mm - firstStart.x_mm);
+    expect(secondEnd.y_mm - secondStart.y_mm).toBe(firstEnd.y_mm - firstStart.y_mm);
+  });
+
+  it('shows a wall fraction snap while placing an opening', () => {
+    useEditorStore.getState().setTool('exterior_window');
+    render(<SvgCanvas />);
+    const canvas = screen.getByTestId('svg-canvas');
+    fireEvent.pointerMove(canvas, { clientX: 250, clientY: 500 });
+    expect(screen.getByTestId('snap-marker-wall_fraction')).toBeTruthy();
+    expect(screen.getByTestId('snap-status').textContent).toContain('1/2');
   });
 
   it('does nothing when Alt is held without a continuation anchor', () => {
@@ -1011,7 +1061,7 @@ describe('SvgCanvas', () => {
     document.reference_image.height_px = 200;
     useEditorStore.getState().loadBuilding(document);
     useEditorStore.getState().setTool('adjust_reference');
-    render(<SvgCanvas />);
+    render(<SvgCanvas autoFitReference={false} />);
     const canvas = screen.getByTestId('svg-canvas');
 
     fireEvent.pointerDown(screen.getByTestId('reference-scale-handle-hit-br'), {
@@ -1049,7 +1099,7 @@ describe('SvgCanvas', () => {
     document.reference_image.transform.rotation_deg = 90;
     useEditorStore.getState().loadBuilding(document);
     useEditorStore.getState().setTool('adjust_reference');
-    render(<SvgCanvas />);
+    render(<SvgCanvas autoFitReference={false} />);
     const canvas = screen.getByTestId('svg-canvas');
 
     // tl 角点（世界坐标 (0,0)），绕对角的 br 锚点缩放

@@ -84,7 +84,10 @@ export interface EditorStore {
   setViewport: (viewport: Viewport) => void;
   setReferenceImageLocked: (locked: boolean) => void;
   beginBuildingSave: () => void;
-  finishBuildingSave: (document: BuildingDocument) => void;
+  finishBuildingSave: (
+    document: BuildingDocument,
+    savedChangeVersion?: number,
+  ) => BuildingDocument | null;
   failBuildingSave: (error: string) => void;
   conflictSave: (error: string) => void;
   closeBuilding: () => void;
@@ -227,12 +230,41 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   beginBuildingSave: () =>
     set({ buildingSaveStatus: 'saving', buildingSaveError: null }),
 
-  finishBuildingSave: (document) =>
-    set({
-      buildingDocument: document,
-      buildingSaveStatus: 'saved',
-      buildingSaveError: null,
-    }),
+  finishBuildingSave: (document, savedChangeVersion) => {
+    let reconciled: BuildingDocument | null = null;
+    set((state) => {
+      if (!state.buildingDocument) return state;
+      const rebase = (entry: HistoryEntry): HistoryEntry => ({
+        ...entry,
+        document: withServerMetadata(entry.document, document.metadata),
+      });
+      if (
+        savedChangeVersion === undefined ||
+        state.changeVersion === savedChangeVersion
+      ) {
+        reconciled = document;
+        return {
+          buildingDocument: document,
+          buildingSaveStatus: 'saved',
+          buildingSaveError: null,
+          undoStack: state.undoStack.map(rebase),
+          redoStack: state.redoStack.map(rebase),
+        };
+      }
+      reconciled = withServerMetadata(
+        state.buildingDocument,
+        document.metadata,
+      );
+      return {
+        buildingDocument: reconciled,
+        buildingSaveStatus: 'unsaved',
+        buildingSaveError: null,
+        undoStack: state.undoStack.map(rebase),
+        redoStack: state.redoStack.map(rebase),
+      };
+    });
+    return reconciled;
+  },
 
   failBuildingSave: (error) =>
     set({ buildingSaveStatus: 'error', buildingSaveError: error }),
@@ -267,3 +299,18 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     });
   },
 }));
+
+function withServerMetadata(
+  document: BuildingDocument,
+  metadata: BuildingDocument['metadata'],
+): BuildingDocument {
+  return {
+    ...document,
+    metadata: {
+      ...document.metadata,
+      status: metadata.status,
+      updated_at: metadata.updated_at,
+      revision: metadata.revision,
+    },
+  };
+}

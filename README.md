@@ -271,7 +271,9 @@ draft → pending_review → reviewed → complete
 
 界面和表格中的建筑净高、正房/厢房开间及面宽以“米”输入和显示，写入 Building JSON 时统一乘以 1000，保存为 `clear_height_mm`、`main_room_bay_mm`、`main_room_width_mm`、`wing_room_bay_mm`、`wing_room_width_mm` 整数毫米字段。建筑净高是唯一可编辑高度；修改、批量导入或打开旧项目时，会同步兼容字段 `building_defaults.wall_height_mm` 和各墙体的 `height_mm`。
 
-门窗属性使用单个“尺寸（宽×高，米）”输入，接受 `×`、`*` 和英文 `x`。`offset_mm` 与 `sill_mm` 不再在属性面板编辑，但仍保留在 JSON 中供墙上定位、边界检查和旧数据兼容。全项目房间模板保存在 `data/.settings/room-function-templates.json`；模板分配给房间时，名称和颜色快照会写入该建筑的 `custom_function_types`，因此删除全局模板不会破坏历史标注。
+门窗属性使用单个“尺寸（宽×高，米）”输入，接受 `×`、`*` 和英文 `x`。墙上构件中心可吸附到宿主墙的 1/4、1/2、3/4 分点，允许构件边缘与墙端对齐；`offset_mm` 与 `sill_mm` 不再在属性面板编辑，但仍保留在 JSON 中供墙上定位、边界检查和旧数据兼容。全项目房间模板保存在 `data/.settings/room-function-templates.json`；模板分配给房间时，名称和颜色快照会写入该建筑的 `custom_function_types`，因此删除全局模板不会破坏历史标注。
+
+参考草图首次进入画布时会自动适配到约 80% 的可视区域，适配只改变本地视口，不改参考图 transform。编辑器顶部“建筑模板”可按面宽、深度和房间数生成矩形外墙与等分内墙；默认 10 m × 4.5 m、4 个房间，非空项目需要确认后才会替换现有几何。
 
 ### 空间图
 
@@ -292,6 +294,7 @@ draft → pending_review → reviewed → complete
 | `Ctrl+Z` | 撤销 |
 | `Ctrl+Shift+Z` / `Ctrl+Y` | 重做 |
 | `Space` + 拖拽 | 平移画布 |
+| 快速按两次 `Space` | 从上一面外墙终点复制同方向、同长度外墙 |
 | `1`–`3` | 房间标注刷：卧室、客厅、餐厅 |
 | `Tab` | 下一个未标注房间 |
 | `Shift+Tab` | 上一个未标注房间 |

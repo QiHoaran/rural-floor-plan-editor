@@ -8,6 +8,8 @@ import {
   wallElementRect,
 } from '@/editor/domain/wallElementGeometry.ts';
 import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { SnapResult } from '@/editor/cad/snapEngine.ts';
+import { resolveWallElementPlacement } from '@/editor/domain/wallElementPlacement.ts';
 
 interface Props {
   document: BuildingDocument;
@@ -24,6 +26,7 @@ interface Props {
   ) => { x_mm: number; y_mm: number };
   /** 拖拽结束提交新的 offset_from_start_mm */
   onCommitElementOffset?: (elementId: string, offsetFromStartMm: number) => void;
+  onSnapChange?: (snap: SnapResult) => void;
 }
 
 const LABELS: Record<WallElementType, string> = {
@@ -43,8 +46,6 @@ const COLORS: Record<WallElementType, string> = {
 /** 内门两端深色竖线的颜色 */
 const DOOR_MARK_COLOR = '#0f172a';
 
-const END_CLEARANCE_MM = 100;
-
 interface DragState {
   elementId: string;
   pointerId: number;
@@ -54,13 +55,14 @@ interface DragState {
 
 export function WallElementLayer({
   document,
-  pixelsPerMm: _pixelsPerMm,
+  pixelsPerMm,
   selectedElementId,
   onSelectElement,
   selectable = true,
   shouldConsumePointerDown = (event) => event.button === 0,
   worldPointFromEvent,
   onCommitElementOffset,
+  onSnapChange,
 }: Props) {
   const [previewOffsets, setPreviewOffsets] = useState<Record<string, number>>({});
   const dragRef = useRef<DragState | null>(null);
@@ -145,10 +147,26 @@ export function WallElementLayer({
               lengthSquared,
           ),
         );
-        let offset = t * Math.sqrt(lengthSquared) - element.width_mm / 2;
-        offset = Math.max(
-          END_CLEARANCE_MM,
-          Math.min(length - END_CLEARANCE_MM - element.width_mm, offset),
+        const placement = resolveWallElementPlacement(
+          length,
+          element.width_mm,
+          t * length,
+          14 / pixelsPerMm,
+        );
+        const offset = placement.offsetFromStartMm;
+        const center = placement.centerOffsetMm;
+        onSnapChange?.(
+          placement.fraction
+            ? {
+                kind: 'wall_fraction',
+                point: {
+                  x_mm: Math.round(start.x_mm + dx / length * center),
+                  y_mm: Math.round(start.y_mm + dy / length * center),
+                },
+                wallId: element.host_wall_id,
+                fraction: placement.fraction,
+              }
+            : { kind: 'none' },
         );
         setPreviewOffsets((current) => ({ ...current, [id]: offset }));
       };

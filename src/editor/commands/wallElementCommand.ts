@@ -22,8 +22,8 @@ export const WALL_ELEMENT_ERROR_MESSAGES: Record<
   ELEMENT_MISSING: '要编辑的墙上构件不存在。',
   HOST_MISSING: '宿主墙或其端点不存在。',
   INVALID_DIMENSIONS:
-    '构件尺寸无效：宽高必须为正整数，窗台和偏移必须为非负整数。',
-  OUT_OF_BOUNDS: '构件越界：墙体两端必须保留至少 100 mm 端距。',
+    '构件尺寸无效：宽高必须为正整数，窗台必须为非负整数。',
+  OUT_OF_BOUNDS: '构件越界：构件宽度不能超过墙长。',
   OVERLAP: '构件与同一宿主墙上的其他构件重叠。',
   SIDE_MISMATCH: '构件类型与墙体两侧空间关系不匹配。',
   REGION_AMBIGUOUS: '无法唯一确定宿主墙两侧的空间区域。',
@@ -43,8 +43,6 @@ export interface PlaceWallElementInput {
 export type WallElementCommandResult =
   | { ok: true; document: BuildingDocument; elementId: string }
   | { ok: false; code: WallElementCommandErrorCode; message: string };
-
-const END_CLEARANCE_MM = 100;
 
 export type WallElementGeometryFailure =
   | { code: 'ELEMENT_HOST_MISSING'; elementId: string }
@@ -75,9 +73,9 @@ export function validateWallElementGeometry(
     );
     if (
       !Number.isFinite(length) ||
-      element.offset_from_start_mm < END_CLEARANCE_MM ||
+      element.offset_from_start_mm < 0 ||
       element.offset_from_start_mm + element.width_mm >
-        length - END_CLEARANCE_MM
+        length
     ) {
       return { code: 'ELEMENT_OUT_OF_BOUNDS', elementId };
     }
@@ -131,7 +129,13 @@ export function updateWallElement(
   if (!current) {
     return commandError('ELEMENT_MISSING', `Wall element ${elementId} is missing.`);
   }
-  return validateAndApply(document, elementId, { ...current, ...changes });
+  const next = { ...current, ...changes };
+  if (changes.width_mm !== undefined && changes.offset_from_start_mm === undefined) {
+    next.offset_from_start_mm = Math.round(
+      current.offset_from_start_mm + current.width_mm / 2 - next.width_mm / 2,
+    );
+  }
+  return validateAndApply(document, elementId, next);
 }
 
 function validateAndApply(
@@ -154,33 +158,38 @@ function validateAndApply(
     !positiveInteger(element.width_mm) ||
     !positiveInteger(element.height_mm) ||
     !nonNegativeInteger(element.sill_height_mm) ||
-    !nonNegativeInteger(element.offset_from_start_mm)
+    !Number.isInteger(element.offset_from_start_mm)
   ) {
     return commandError(
       'INVALID_DIMENSIONS',
       'Width and height must be positive integers; sill and offset must be non-negative integers.',
     );
   }
-  const intervalEnd = element.offset_from_start_mm + element.width_mm;
-  if (
-    element.offset_from_start_mm < END_CLEARANCE_MM ||
-    intervalEnd > length - END_CLEARANCE_MM
-  ) {
+  if (element.width_mm > length) {
     return commandError(
       'OUT_OF_BOUNDS',
-      `Wall elements require ${END_CLEARANCE_MM} mm clearance from both wall ends.`,
+      'Wall element width exceeds its host wall.',
     );
   }
+  const normalizedElement = {
+    ...element,
+    offset_from_start_mm: Math.max(
+      0,
+      Math.min(Math.round(length - element.width_mm), element.offset_from_start_mm),
+    ),
+  };
+  const intervalEnd =
+    normalizedElement.offset_from_start_mm + normalizedElement.width_mm;
   for (const [otherId, other] of Object.entries(document.wall_elements)) {
     if (otherId === elementId || other.host_wall_id !== element.host_wall_id) continue;
     const otherEnd = other.offset_from_start_mm + other.width_mm;
-    if (element.offset_from_start_mm < otherEnd && intervalEnd > other.offset_from_start_mm) {
+    if (normalizedElement.offset_from_start_mm < otherEnd && intervalEnd > other.offset_from_start_mm) {
       return commandError('OVERLAP', `Wall element overlaps ${otherId}.`);
     }
   }
   const candidate: BuildingDocument = {
     ...document,
-    wall_elements: { ...document.wall_elements, [elementId]: element },
+    wall_elements: { ...document.wall_elements, [elementId]: normalizedElement },
   };
   const derived = deriveRelations(candidate);
   const placementIssue = derived.issues.find(

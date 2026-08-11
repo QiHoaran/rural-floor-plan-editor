@@ -23,8 +23,17 @@ export interface CommandPoint {
   vertexId?: string;
 }
 
+export interface WallSegmentVector {
+  dxMm: number;
+  dyMm: number;
+}
+
 export type WallCommandState =
-  | { phase: 'idle'; continuationAnchor?: CommandPoint }
+  | {
+      phase: 'idle';
+      continuationAnchor?: CommandPoint;
+      lastSegment?: WallSegmentVector;
+    }
   | {
       phase: 'drawing';
       mode: 'single' | 'polyline';
@@ -46,6 +55,7 @@ export type WallCommandEvent =
       constraint: DirectionConstraint;
     }
   | { type: 'INPUT'; value: string }
+  | { type: 'DUPLICATE_LAST' }
   | { type: 'CONFIRM' }
   | { type: 'CANCEL' };
 
@@ -85,9 +95,14 @@ const MIN_WALL_LENGTH_MM = 100;
 
 export function createIdleWallCommand(
   continuationAnchor?: CommandPoint,
+  lastSegment?: WallSegmentVector,
 ): WallCommandState {
   return continuationAnchor
-    ? { phase: 'idle', continuationAnchor }
+    ? {
+        phase: 'idle',
+        continuationAnchor,
+        ...(lastSegment ? { lastSegment } : {}),
+      }
     : { phase: 'idle' };
 }
 
@@ -101,6 +116,41 @@ export function reduceWallCommand(
   }
 
   if (state.phase === 'idle') {
+    if (
+      event.type === 'DUPLICATE_LAST' &&
+      state.continuationAnchor &&
+      state.lastSegment
+    ) {
+      const { dxMm, dyMm } = state.lastSegment;
+      const length = Math.hypot(dxMm, dyMm);
+      if (length < MIN_WALL_LENGTH_MM) return result(state);
+      const direction: CadDirection = {
+        dx: dxMm / length,
+        dy: dyMm / length,
+        angle_deg: Math.atan2(dyMm, dxMm) * 180 / Math.PI,
+      };
+      return reduceWallCommand(
+        {
+          phase: 'drawing',
+          mode: 'single',
+          continuation: true,
+          start: state.continuationAnchor,
+          cursor: {
+            x_mm: state.continuationAnchor.point.x_mm + dxMm,
+            y_mm: state.continuationAnchor.point.y_mm + dyMm,
+          },
+          previewEnd: {
+            x_mm: state.continuationAnchor.point.x_mm + dxMm,
+            y_mm: state.continuationAnchor.point.y_mm + dyMm,
+          },
+          direction,
+          angleDeg: direction.angle_deg,
+          input: '',
+        },
+        { type: 'CONFIRM' },
+        context,
+      );
+    }
     if (
       event.type === 'ACTIVATE_CONTINUATION' &&
       state.continuationAnchor
@@ -254,7 +304,10 @@ function nextStateAfterCommit(
         angleDeg: state.angleDeg,
         input: '',
       }
-    : createIdleWallCommand(canonicalEnd);
+    : createIdleWallCommand(canonicalEnd, {
+        dxMm: canonicalEnd.point.x_mm - state.start.point.x_mm,
+        dyMm: canonicalEnd.point.y_mm - state.start.point.y_mm,
+      });
 }
 
 function createdCandidateTerminal(

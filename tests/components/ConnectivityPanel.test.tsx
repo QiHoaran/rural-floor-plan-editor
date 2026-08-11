@@ -48,9 +48,9 @@ describe('ConnectivityPanel', () => {
   it('does not commit an out-of-bounds dimension edit', () => {
     render(<ConnectivityPanel elementId="element" />);
     const dimensions = screen.getByLabelText('尺寸（宽×高，米）');
-    fireEvent.change(dimensions, { target: { value: '2.9×1.2' } });
+    fireEvent.change(dimensions, { target: { value: '3.1×1.2' } });
     fireEvent.blur(dimensions);
-    expect(screen.getByRole('alert').textContent).toContain('端距');
+    expect(screen.getByRole('alert').textContent).toContain('墙长');
     expect(useEditorStore.getState().buildingDocument!.wall_elements.element.width_mm)
       .toBe(1200);
   });

@@ -75,6 +75,7 @@ describe('wall command state machine', () => {
         point: { x_mm: 5500, y_mm: 1000 },
         vertexId: expect.any(String),
       },
+      lastSegment: { dxMm: 4500, dyMm: 0 },
     });
     expect(committed.transaction?.description).toBe('绘制外墙');
 
@@ -331,6 +332,7 @@ describe('wall command state machine', () => {
         point: { x_mm: 3001, y_mm: 1000 },
         vertexId: 'v_target',
       },
+      lastSegment: { dxMm: 2001, dyMm: 0 },
     });
   });
 
@@ -373,6 +375,39 @@ describe('wall command state machine', () => {
         point: { x_mm: 3000, y_mm: 3000 },
         vertexId: walls[1].end_vertex_id,
       },
+    });
+  });
+
+  it('duplicates the last wall vector from its canonical endpoint', () => {
+    const firstContext = createContext();
+    const first = reduceWallCommand(
+      startAndMove(firstContext),
+      { type: 'CONFIRM' },
+      firstContext,
+    );
+    const afterFirst = first.transaction!.apply(firstContext.document!);
+    const firstState = first.transaction!.stateAfter(afterFirst);
+    const secondContext = createContext({ document: afterFirst });
+    const duplicated = reduceWallCommand(
+      firstState,
+      { type: 'DUPLICATE_LAST' },
+      secondContext,
+    );
+    expect(duplicated.transaction).not.toBeNull();
+    const afterSecond = duplicated.transaction!.apply(afterFirst);
+    const walls = Object.values(afterSecond.walls);
+    expect(walls).toHaveLength(2);
+    const firstStart = afterSecond.vertices[walls[0].start_vertex_id];
+    const firstEnd = afterSecond.vertices[walls[0].end_vertex_id];
+    const secondStart = afterSecond.vertices[walls[1].start_vertex_id];
+    const secondEnd = afterSecond.vertices[walls[1].end_vertex_id];
+    expect(secondStart).toEqual(firstEnd);
+    expect({
+      x_mm: secondEnd.x_mm - secondStart.x_mm,
+      y_mm: secondEnd.y_mm - secondStart.y_mm,
+    }).toEqual({
+      x_mm: firstEnd.x_mm - firstStart.x_mm,
+      y_mm: firstEnd.y_mm - firstStart.y_mm,
     });
   });
 

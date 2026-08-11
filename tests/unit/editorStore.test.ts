@@ -64,6 +64,37 @@ describe('editorStore document transactions', () => {
     expect(state.changeVersion).toBe(0);
   });
 
+  it('keeps newer edits when an older autosave response arrives', () => {
+    useEditorStore.getState().transact('first', (document) => ({
+      ...document,
+      vertices: { first: { x_mm: 1, y_mm: 1 } },
+    }));
+    const saved = structuredClone(useEditorStore.getState().buildingDocument!);
+    saved.metadata.revision = 1;
+    useEditorStore.getState().transact('second', (document) => ({
+      ...document,
+      vertices: { ...document.vertices, second: { x_mm: 2, y_mm: 2 } },
+    }));
+
+    useEditorStore.getState().finishBuildingSave(saved, 1);
+    const current = useEditorStore.getState();
+    expect(current.buildingDocument?.vertices.second).toEqual({ x_mm: 2, y_mm: 2 });
+    expect(current.buildingDocument?.metadata.revision).toBe(1);
+    expect(current.buildingSaveStatus).toBe('unsaved');
+  });
+
+  it('rebases undo snapshots to the latest saved revision', () => {
+    useEditorStore.getState().transact('edit', (document) => ({
+      ...document,
+      vertices: { v: { x_mm: 1, y_mm: 1 } },
+    }));
+    const saved = structuredClone(useEditorStore.getState().buildingDocument!);
+    saved.metadata.revision = 7;
+    useEditorStore.getState().finishBuildingSave(saved, 1);
+    useEditorStore.getState().undo();
+    expect(useEditorStore.getState().buildingDocument?.metadata.revision).toBe(7);
+  });
+
   it('stores an explicit direction mode and defaults to orthogonal', () => {
     expect(useEditorStore.getState().directionMode).toBe('orthogonal');
 

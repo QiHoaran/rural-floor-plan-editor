@@ -17,6 +17,12 @@ export type SnapResult =
       point: BuildingVertex;
       wallId: string;
     }
+  | {
+      kind: 'wall_fraction';
+      point: BuildingVertex;
+      wallId: string;
+      fraction: '1/4' | '1/2' | '3/4';
+    }
   | { kind: 'grid'; point: BuildingVertex };
 
 export type SnapMode = 'grid' | 'geometry' | 'none';

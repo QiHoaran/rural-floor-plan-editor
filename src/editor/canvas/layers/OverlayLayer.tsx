@@ -118,6 +118,21 @@ function SnapMarker({
       />
     );
   }
+  if (snap.kind === 'wall_fraction') {
+    return (
+      <path
+        data-testid="snap-marker-wall_fraction"
+        aria-label={`墙体${snap.fraction}分点吸附`}
+        role="img"
+        d={`M ${x} ${y - size} L ${x + size} ${y} L ${x} ${
+          y + size
+        } L ${x - size} ${y} Z`}
+        fill="none"
+        stroke="#ea580c"
+        strokeWidth={strokeWidth}
+      />
+    );
+  }
   return (
     <circle
       data-testid="snap-marker-grid"
