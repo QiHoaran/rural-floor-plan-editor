@@ -2,18 +2,20 @@
 // 项目首页 — v2.1.0 丰富卡片展示
 // ============================================================
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type DragEvent } from 'react';
 import {
   listProjects,
   listTrashedProjects,
   trashProject,
   restoreProject,
   downloadProjectArchive,
+  projectPreviewUrl,
   type ProjectSummary,
 } from '@/api/projectApi.ts';
 import type { BuildingDocument } from '@/editor/domain/buildingTypes.ts';
 import { NewProjectDialog } from './NewProjectDialog.tsx';
 import { BulkSurveyImportDialog } from './BulkSurveyImportDialog.tsx';
+import { uploadReferenceImageFile } from './imageFile.ts';
 import styles from './ProjectHome.module.css';
 
 interface ProjectHomeProps {
@@ -39,6 +41,11 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchMessage, setBatchMessage] = useState('');
+  const [dropState, setDropState] = useState<{
+    buildingId: string;
+    status: 'hover' | 'busy' | 'success' | 'error';
+    message: string;
+  } | null>(null);
 
   const refresh = useCallback(() => {
     let active = true;
@@ -140,6 +147,60 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
     setBatchBusy(false);
   };
 
+  const handleCardDrop = async (
+    event: DragEvent<HTMLDivElement>,
+    project: ProjectSummary,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (dropState?.status === 'busy') return;
+    if (project.has_reference_image) {
+      setDropState({
+        buildingId: project.building_id,
+        status: 'error',
+        message: '已有参考图，不能覆盖',
+      });
+      window.setTimeout(() => setDropState((current) =>
+        current?.buildingId === project.building_id ? null : current), 1800);
+      return;
+    }
+    const files = [...event.dataTransfer.files];
+    if (files.length !== 1) {
+      setDropState({
+        buildingId: project.building_id,
+        status: 'error',
+        message: '请一次拖入一张图片',
+      });
+      window.setTimeout(() => setDropState((current) =>
+        current?.buildingId === project.building_id ? null : current), 1800);
+      return;
+    }
+    setDropState({
+      buildingId: project.building_id,
+      status: 'busy',
+      message: '正在导入参考图…',
+    });
+    try {
+      await uploadReferenceImageFile(project.building_id, files[0]);
+      setDropState({
+        buildingId: project.building_id,
+        status: 'success',
+        message: '参考图已导入',
+      });
+      window.setTimeout(() => setDropState((current) =>
+        current?.buildingId === project.building_id ? null : current), 1800);
+      refresh();
+    } catch (error) {
+      setDropState({
+        buildingId: project.building_id,
+        status: 'error',
+        message: error instanceof Error ? error.message : '参考图导入失败',
+      });
+      window.setTimeout(() => setDropState((current) =>
+        current?.buildingId === project.building_id ? null : current), 2400);
+    }
+  };
+
   return (
     <main className={styles.home}>
       <section className={styles.hero}>
@@ -209,7 +270,30 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
               key={project.building_id}
               className={`${styles.projectCard} ${
                 selectedIds.has(project.building_id) ? styles.projectCardSelected : ''
-              }`}
+              } ${dropState?.buildingId === project.building_id ? styles.projectCardDropActive : ''}`}
+              onDragEnter={(event) => {
+                if (!event.dataTransfer.types.includes('Files')) return;
+                event.preventDefault();
+                setDropState({
+                  buildingId: project.building_id,
+                  status: 'hover',
+                  message: project.has_reference_image
+                    ? '已有参考图，不能覆盖'
+                    : '松开以导入参考图',
+                });
+              }}
+              onDragOver={(event) => {
+                if (!event.dataTransfer.types.includes('Files')) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = project.has_reference_image ? 'none' : 'copy';
+              }}
+              onDragLeave={(event) => {
+                const next = event.relatedTarget as Node | null;
+                if (!next || !event.currentTarget.contains(next)) {
+                  if (dropState?.status === 'hover') setDropState(null);
+                }
+              }}
+              onDrop={(event) => void handleCardDrop(event, project)}
             >
               <label className={styles.projectSelector}>
                 <input
@@ -223,86 +307,26 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
                 className={styles.projectCardMain}
                 onClick={() => onOpen(project.building_id)}
               >
-                {/* 名称 + 状态 + 日期 */}
-                <div className={styles.cardTop}>
-                  <strong>{project.building_id}</strong>
-                  <span className={styles.cardName}>{project.name}</span>
-                  <span
-                    className={`${styles.statusBadge} ${styles[project.status]}`}
-                  >
-                    {STATUS_LABELS[project.status] ?? project.status}
-                  </span>
-                  <time>
-                    {new Date(project.updated_at).toLocaleDateString()}
-                  </time>
+                <div className={styles.cardThumbnail} aria-hidden="true">
+                  {project.preview_kind !== 'empty' && (
+                    <img src={projectPreviewUrl(project.building_id)} alt="" />
+                  )}
                 </div>
-
-                {/* 统计 + 数据质量 */}
-                <div className={styles.cardStats}>
-                  <div className={styles.statItem}>
-                    <span>房间</span>
-                    <b>{project.room_count}</b>
+                <div className={styles.cardInfo}>
+                  <div className={styles.cardInfoRow}>
+                    <strong>{project.building_id}</strong>
+                    <span className={`${styles.statusBadge} ${styles[project.status]}`}>
+                      {STATUS_LABELS[project.status] ?? project.status}
+                    </span>
                   </div>
-                  <div className={styles.statItem}>
-                    <span>面积</span>
-                    <b>{(project.total_floor_area_m2 ?? 0).toFixed(1)} m²</b>
+                  <div className={styles.cardInfoRow}>
+                    <time>{formatProjectDate(project.updated_at)}</time>
+                    <span>参考图[{project.has_reference_image ? '✓' : ' '}]</span>
                   </div>
-                  <div className={styles.statItem}>
-                    <span>标注</span>
-                    <b>{project.room_semantic_progress}%</b>
-                  </div>
-                  <div className={styles.issueSummary}>
-                    {project.validation_error_count > 0 && (
-                      <span className={styles.errorCount}>
-                        ✕ {project.validation_error_count} 错误
-                      </span>
-                    )}
-                    {project.validation_warning_count > 0 && (
-                      <span className={styles.warningCount}>
-                        ⚠ {project.validation_warning_count} 警告
-                      </span>
-                    )}
-                    {project.validation_error_count === 0 &&
-                      project.validation_warning_count === 0 && (
-                        <span className={styles.cleanBadge}>✓ 无问题</span>
-                      )}
-                  </div>
-                </div>
-
-                {/* 进度条（一行横排） */}
-                <div className={styles.progressBars}>
-                  <div className={styles.progressItem}>
-                    <span className={styles.progressLabel}>几何</span>
-                    <div className={styles.progressTrack}>
-                      <div
-                        className={styles.progressFill}
-                        style={{
-                          width: `${project.geometry_progress}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <div className={styles.progressItem}>
-                    <span className={styles.progressLabel}>语义</span>
-                    <div className={styles.progressTrack}>
-                      <div
-                        className={styles.progressFill}
-                        style={{
-                          width: `${project.room_semantic_progress}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <div className={styles.progressItem}>
-                    <span className={styles.progressLabel}>门窗</span>
-                    <div className={styles.progressTrack}>
-                      <div
-                        className={styles.progressFill}
-                        style={{
-                          width: `${project.opening_progress}%`,
-                        }}
-                      />
-                    </div>
+                  <div className={`${styles.cardInfoRow} ${styles.cardMetrics}`}>
+                    <span>房间{project.room_count}</span>
+                    <span>面积{(project.total_floor_area_m2 ?? 0).toFixed(1)}m²</span>
+                    <span>标注{project.room_semantic_progress}%</span>
                   </div>
                 </div>
               </button>
@@ -314,6 +338,11 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
               >
                 🗑
               </button>
+              {dropState?.buildingId === project.building_id && (
+                <div className={`${styles.dropOverlay} ${styles[dropState.status]}`}>
+                  {dropState.message}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -372,4 +401,14 @@ function downloadBlob(blob: Blob, filename: string): void {
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
+}
+
+function formatProjectDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(date);
 }

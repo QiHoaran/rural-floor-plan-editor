@@ -12,7 +12,7 @@ export type BuildingTemplateResult =
   | { ok: true; document: BuildingDocument }
   | { ok: false; message: string };
 
-/** 生成外墙矩形及沿面宽等分的内墙，不改变任何持久化数据结构。 */
+/** 生成外墙矩形及按房间数等分的内墙，不改变任何持久化数据结构。 */
 export function applyBuildingTemplate(
   document: BuildingDocument,
   input: BuildingTemplateInput,
@@ -23,7 +23,7 @@ export function applyBuildingTemplate(
     input.frontageMm < 100 ||
     input.depthMm < 100
   ) {
-    return { ok: false, message: '面宽和深度必须至少为 0.1 米。' };
+    return { ok: false, message: '正房开间和正房面宽必须至少为 0.1 米。' };
   }
   if (!Number.isInteger(input.roomCount) || input.roomCount < 1) {
     return { ok: false, message: '房间数必须是大于 0 的整数。' };

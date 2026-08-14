@@ -18,6 +18,8 @@ export interface ScreenPoint {
 
 const MIN_PIXELS_PER_MM = 0.005;
 const MAX_PIXELS_PER_MM = 2;
+/** CSS 96 DPI 下的 1:150：1 CSS cm 对应 1.5 m。 */
+export const DEFAULT_VIEW_PIXELS_PER_MM = (96 / 25.4) / 150;
 
 export function worldToScreen(
   point: BuildingVertex,
@@ -84,7 +86,11 @@ export function fitWorldPoints(
   fillRatio = 0.8,
 ): Viewport {
   if (points.length === 0) {
-    return { originXmm: 0, originYmm: 0, pixelsPerMm: 0.1 };
+    return {
+      originXmm: 0,
+      originYmm: 0,
+      pixelsPerMm: DEFAULT_VIEW_PIXELS_PER_MM,
+    };
   }
   const xs = points.map((point) => point.x_mm);
   const ys = points.map((point) => point.y_mm);

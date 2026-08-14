@@ -119,6 +119,20 @@ export function createProjectRouter(projectService: ProjectService): Router {
     response.sendFile(projectService.resolveFile(buildingId, relativePath));
   });
 
+  router.get('/:buildingId/preview', async (request, response) => {
+    const preview = await projectService.preview(request.params.buildingId);
+    response.setHeader('Cache-Control', 'no-store');
+    if (preview.kind === 'vector') {
+      response.type('image/svg+xml').send(preview.svg);
+      return;
+    }
+    if (preview.kind === 'reference') {
+      response.type(preview.mimeType).sendFile(preview.filePath);
+      return;
+    }
+    response.status(204).end();
+  });
+
   // ---- 单个项目操作 ----
 
   router.get('/:buildingId', async (request, response) => {
@@ -159,6 +173,12 @@ export function createProjectRouter(projectService: ProjectService): Router {
         heightPx: Number(height_px),
       },
     ));
+  });
+
+  router.delete('/:buildingId/reference', async (request, response) => {
+    response.json(
+      await projectService.removeReferenceImage(request.params.buildingId),
+    );
   });
 
   // ---- v2.1.0: 带 revision 锁的自动保存 ----

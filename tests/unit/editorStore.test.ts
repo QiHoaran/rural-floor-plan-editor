@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createEmptyBuilding } from '../../src/editor/domain/buildingDocument.ts';
 import { useEditorStore } from '../../src/editor/store/editorStore.ts';
+import { DEFAULT_VIEW_PIXELS_PER_MM } from '../../src/editor/canvas/Viewport.ts';
 
 describe('editorStore document transactions', () => {
   beforeEach(() => {
@@ -62,6 +63,22 @@ describe('editorStore document transactions', () => {
     expect(state.viewport.originXmm).toBe(-1000);
     expect(state.undoStack).toHaveLength(0);
     expect(state.changeVersion).toBe(0);
+  });
+
+  it('resets the viewport when loading a different project', () => {
+    useEditorStore.getState().setViewport({
+      originXmm: 5000,
+      originYmm: 6000,
+      pixelsPerMm: 1,
+    });
+    useEditorStore.getState().loadBuilding(
+      createEmptyBuilding('house_0002', 'reference/original.png'),
+    );
+    expect(useEditorStore.getState().viewport).toEqual({
+      originXmm: -1000,
+      originYmm: -1000,
+      pixelsPerMm: DEFAULT_VIEW_PIXELS_PER_MM,
+    });
   });
 
   it('keeps newer edits when an older autosave response arrives', () => {

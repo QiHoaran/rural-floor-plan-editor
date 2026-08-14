@@ -88,7 +88,14 @@ export interface ProjectSummary {
   opening_progress: number;
   validation_error_count: number;
   validation_warning_count: number;
+  preview_kind: 'empty' | 'reference' | 'vector';
+  has_reference_image: boolean;
 }
+
+export type ProjectPreview =
+  | { kind: 'empty' }
+  | { kind: 'reference'; filePath: string; mimeType: string }
+  | { kind: 'vector'; svg: string };
 
 export interface RevisionEntry {
   revision: number;
@@ -255,6 +262,99 @@ export class ProjectService {
       );
       return saved;
     });
+  }
+
+  async removeReferenceImage(buildingId: string): Promise<BuildingDocument> {
+    const safeId = validateBuildingId(buildingId);
+    return this.withProjectLock(safeId, async () => {
+      const current = (await this.open(safeId)).document;
+      if (!current.reference_image.path) {
+        throw new ServiceError(
+          '当前项目没有可删除的参考图',
+          409,
+          'REFERENCE_NOT_FOUND',
+        );
+      }
+
+      const buildingDir = resolveBuildingDir(this.dataRoot, safeId);
+      const sourcePath = resolvePackageFile(
+        this.dataRoot,
+        safeId,
+        current.reference_image.path,
+      );
+      const removedDir = path.join(buildingDir, 'reference', '.removed');
+      await fs.mkdir(removedDir, { recursive: true });
+      const removedPath = path.join(
+        removedDir,
+        `${Date.now()}-r${current.metadata.revision}-${path.basename(sourcePath)}`,
+      );
+      await fs.rename(sourcePath, removedPath).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') {
+          throw new ServiceError(
+            '参考图文件不存在，未修改项目',
+            404,
+            'REFERENCE_FILE_NOT_FOUND',
+          );
+        }
+        throw error;
+      });
+
+      const { reference_calibration: _calibration, ...withoutCalibration } = current;
+      const saved: BuildingDocument = {
+        ...withoutCalibration,
+        reference_image: {
+          path: '',
+          mime_type: 'application/octet-stream',
+          width_px: 0,
+          height_px: 0,
+          opacity: 0.55,
+          transform: {
+            translate_x_mm: 0,
+            translate_y_mm: 0,
+            scale: 1,
+            rotation_deg: 0,
+          },
+        },
+        metadata: {
+          ...current.metadata,
+          updated_at: new Date().toISOString(),
+          revision: current.metadata.revision + 1,
+        },
+      };
+      assertValidForOperation(saved, 'autosave');
+      try {
+        await atomicWriteJson(
+          path.join(buildingDir, 'draft', 'building.autosave.json'),
+          saved,
+        );
+      } catch (error) {
+        await fs.rename(removedPath, sourcePath).catch(() => {});
+        throw error;
+      }
+      return saved;
+    });
+  }
+
+  async preview(buildingId: string): Promise<ProjectPreview> {
+    const safeId = validateBuildingId(buildingId);
+    const { document } = await this.open(safeId);
+    if (Object.keys(document.walls ?? {}).length > 0) {
+      return {
+        kind: 'vector',
+        svg: renderBuildingSvg(document, {
+          pixelsPerMm: 0.1,
+          includeScaleBar: false,
+        }),
+      };
+    }
+    if (document.reference_image.path) {
+      return {
+        kind: 'reference',
+        filePath: this.resolveFile(safeId, document.reference_image.path),
+        mimeType: document.reference_image.mime_type,
+      };
+    }
+    return { kind: 'empty' };
   }
 
   async bulkImportSurveys(
@@ -1244,6 +1344,8 @@ function summarizeDocument(document: BuildingDocument): ProjectSummary {
 
   const totalArea =
     faces.reduce((sum, f) => sum + (f.area_mm2 ?? 0), 0) / 1_000_000;
+  const hasVector = Object.keys(document.walls ?? {}).length > 0;
+  const hasReferenceImage = Boolean(document.reference_image?.path);
 
   return {
     building_id: document.building_id,
@@ -1270,6 +1372,12 @@ function summarizeDocument(document: BuildingDocument): ProjectSummary {
     validation_warning_count: allIssues.filter(
       (i) => i.severity === 'warning',
     ).length,
+    preview_kind: hasVector
+      ? 'vector'
+      : hasReferenceImage
+        ? 'reference'
+        : 'empty',
+    has_reference_image: hasReferenceImage,
   };
 }
 

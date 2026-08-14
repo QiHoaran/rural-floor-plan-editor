@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   fitWorldPoints,
+  DEFAULT_VIEW_PIXELS_PER_MM,
   panBy,
   screenToWorld,
   worldToScreen,
@@ -17,6 +18,9 @@ const viewport: Viewport = {
 };
 
 describe('SVG viewport transforms', () => {
+  it('uses a CSS 1:150 default scale', () => {
+    expect(DEFAULT_VIEW_PIXELS_PER_MM).toBeCloseTo((96 / 25.4) / 150, 10);
+  });
   it('round-trips between world and screen coordinates', () => {
     const world = { x_mm: 1000, y_mm: 500 };
     const screen = worldToScreen(world, viewport, size);

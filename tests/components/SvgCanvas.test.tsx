@@ -62,7 +62,7 @@ describe('SvgCanvas', () => {
     render(<SvgCanvas />);
 
     await waitFor(() => {
-      expect(useEditorStore.getState().viewport.pixelsPerMm).toBeCloseTo(0.64);
+      expect(useEditorStore.getState().viewport.pixelsPerMm).toBeCloseTo(0.08);
     });
     expect(useEditorStore.getState().buildingDocument!.reference_image.transform)
       .toEqual(originalTransform);

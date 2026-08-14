@@ -19,6 +19,8 @@ export interface ProjectSummary {
   opening_progress: number;
   validation_error_count: number;
   validation_warning_count: number;
+  preview_kind: 'empty' | 'reference' | 'vector';
+  has_reference_image: boolean;
 }
 
 export interface RevisionEntry {
@@ -109,6 +111,18 @@ export function uploadReferenceImage(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),
   });
+}
+
+export function removeReferenceImage(
+  buildingId: string,
+): Promise<BuildingDocument> {
+  return requestJson(`/api/projects/${encodeURIComponent(buildingId)}/reference`, {
+    method: 'DELETE',
+  });
+}
+
+export function projectPreviewUrl(buildingId: string): string {
+  return `/api/projects/${encodeURIComponent(buildingId)}/preview`;
 }
 
 export function listRoomFunctionTemplates(): Promise<CustomFunctionType[]> {

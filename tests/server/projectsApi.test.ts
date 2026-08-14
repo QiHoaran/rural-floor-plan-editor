@@ -53,6 +53,16 @@ describe('projects API', () => {
     const listed = await request(app).get('/api/projects').expect(200);
     expect(listed.body).toHaveLength(1);
     expect(listed.body[0].building_id).toBe('house_0001');
+    expect(listed.body[0]).toMatchObject({
+      preview_kind: 'reference',
+      has_reference_image: true,
+    });
+
+    const referencePreview = await request(app)
+      .get('/api/projects/house_0001/preview')
+      .expect('Content-Type', /image\/png/)
+      .expect(200);
+    expect(referencePreview.body).toEqual(Buffer.from('png-data'));
 
     const opened = await request(app)
       .get('/api/projects/house_0001')
@@ -66,6 +76,34 @@ describe('projects API', () => {
       .expect(200);
     expect(saved.body.metadata.revision).toBe(1);
     expect(saved.body).not.toHaveProperty('_clientRevision');
+
+    const withWall = structuredClone(saved.body);
+    withWall.vertices = {
+      v1: { x_mm: 0, y_mm: 0 },
+      v2: { x_mm: 3000, y_mm: 0 },
+    };
+    withWall.walls = {
+      w1: {
+        start_vertex_id: 'v1',
+        end_vertex_id: 'v2',
+        wall_type: 'exterior',
+        thickness_mm: 240,
+        height_mm: 3000,
+        material_type: 'brick',
+      },
+    };
+    withWall.floors[0].wall_ids = ['w1'];
+    await request(app)
+      .put('/api/projects/house_0001/autosave')
+      .send({ ...withWall, _clientRevision: 1 })
+      .expect(200);
+    const vectorPreview = await request(app)
+      .get('/api/projects/house_0001/preview')
+      .expect('Content-Type', /image\/svg\+xml/)
+      .expect(200);
+    expect(Buffer.from(vectorPreview.body).toString('utf8')).toContain('<polygon');
+    const vectorListed = await request(app).get('/api/projects').expect(200);
+    expect(vectorListed.body[0].preview_kind).toBe('vector');
   });
 
   it('returns a structured conflict for duplicate IDs', async () => {
@@ -162,11 +200,59 @@ describe('projects API', () => {
       .expect(200);
     expect(image.body).toEqual(Buffer.from('later-png-data'));
 
+    const calibrated = structuredClone(attached.body);
+    calibrated.reference_calibration = {
+      calibrated: true,
+      point_a_image: { x: 0, y: 0 },
+      point_b_image: { x: 100, y: 0 },
+      real_distance_mm: 1000,
+      mm_per_image_pixel: 10,
+      calibrated_at: '2026-08-14T00:00:00.000Z',
+    };
+    await request(app)
+      .put('/api/projects/rural_002_house_0008/autosave')
+      .send({ ...calibrated, _clientRevision: 1 })
+      .expect(200);
+
     const duplicate = await request(app)
       .post('/api/projects/rural_002_house_0008/reference')
       .send(imageInput)
       .expect(409);
     expect(duplicate.body.error.code).toBe('REFERENCE_ALREADY_EXISTS');
+
+    const removed = await request(app)
+      .delete('/api/projects/rural_002_house_0008/reference')
+      .expect(200);
+    expect(removed.body.reference_image).toMatchObject({
+      path: '',
+      mime_type: 'application/octet-stream',
+      width_px: 0,
+      height_px: 0,
+    });
+    expect(removed.body.reference_calibration).toBeUndefined();
+    expect(removed.body.metadata.revision).toBe(3);
+    await expect(
+      fs.access(path.join(
+        config.dataRoot,
+        'rural_002_house_0008',
+        'reference',
+        'original.png',
+      )),
+    ).rejects.toThrow();
+    const removedFiles = await fs.readdir(path.join(
+      config.dataRoot,
+      'rural_002_house_0008',
+      'reference',
+      '.removed',
+    ));
+    expect(removedFiles).toHaveLength(1);
+    expect(removedFiles[0]).toMatch(/-r2-original\.png$/);
+
+    const reattached = await request(app)
+      .post('/api/projects/rural_002_house_0008/reference')
+      .send(imageInput)
+      .expect(200);
+    expect(reattached.body.metadata.revision).toBe(4);
   });
 
   it('rejects unsupported images and traversal IDs', async () => {

@@ -3,6 +3,7 @@
    ============================================================ */
 
 .container {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -263,6 +264,31 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+.imageDropOverlay {
+  position: absolute;
+  inset: 40px 0 24px;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(239, 246, 255, 0.9);
+  color: #1d4ed8;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  pointer-events: none;
+}
+
+.imageDropOverlay.error {
+  background: rgba(254, 242, 242, 0.92);
+  color: #b91c1c;
+}
+
+.imageDropOverlay.success {
+  background: rgba(240, 253, 244, 0.92);
+  color: #15803d;
 }
 
 .propertyPlaceholder {

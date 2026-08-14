@@ -1,8 +1,16 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditablePropertyPanel } from '../../src/editor/panels/EditablePropertyPanel.tsx';
 import { createEmptyBuilding } from '../../src/editor/domain/buildingDocument.ts';
 import { useEditorStore } from '../../src/editor/store/editorStore.ts';
+import * as projectApi from '../../src/api/projectApi.ts';
+
+vi.mock('../../src/api/projectApi.ts', async () => {
+  const actual = await vi.importActual<typeof import('../../src/api/projectApi.ts')>(
+    '../../src/api/projectApi.ts',
+  );
+  return { ...actual, removeReferenceImage: vi.fn() };
+});
 
 function loadWall() {
   const document = createEmptyBuilding(
@@ -85,6 +93,37 @@ describe('EditablePropertyPanel', () => {
       .toBe(2750);
     expect(useEditorStore.getState().buildingDocument!.walls.w_1.height_mm)
       .toBe(2750);
+  });
+
+  it('confirms and removes an existing reference image', async () => {
+    useEditorStore.getState().setSelection(null);
+    const current = useEditorStore.getState().buildingDocument!;
+    current.reference_calibration = {
+      calibrated: true,
+      point_a_image: { x: 0, y: 0 },
+      point_b_image: { x: 100, y: 0 },
+      real_distance_mm: 1000,
+      mm_per_image_pixel: 10,
+      calibrated_at: '2026-08-14T00:00:00.000Z',
+    };
+    const saved = structuredClone(current);
+    saved.reference_image.path = '';
+    saved.reference_image.mime_type = 'application/octet-stream';
+    saved.reference_image.width_px = 0;
+    saved.reference_image.height_px = 0;
+    delete saved.reference_calibration;
+    saved.metadata.revision += 1;
+    vi.mocked(projectApi.removeReferenceImage).mockResolvedValue(saved);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<EditablePropertyPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: '删除参考图' }));
+    await waitFor(() => {
+      expect(projectApi.removeReferenceImage).toHaveBeenCalledWith('house_0001');
+      expect(screen.getByText('参考图已删除，原文件已备份。')).toBeTruthy();
+    });
+    expect(useEditorStore.getState().buildingDocument!.reference_image.path).toBe('');
+    expect(useEditorStore.getState().buildingDocument!.reference_calibration).toBeUndefined();
   });
 
   it('can fix the end vertex when changing length', () => {

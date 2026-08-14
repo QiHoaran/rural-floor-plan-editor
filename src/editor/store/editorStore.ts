@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import type { BuildingDocument } from '@/editor/domain/buildingTypes.ts';
-import type { Viewport } from '@/editor/canvas/Viewport.ts';
+import {
+  DEFAULT_VIEW_PIXELS_PER_MM,
+  type Viewport,
+} from '@/editor/canvas/Viewport.ts';
 import { computeBuildingStatistics } from '@/editor/domain/buildingStatistics.ts';
 import { validateBuildingDocumentFull } from '@/editor/domain/buildingValidation.ts';
 
@@ -97,7 +100,7 @@ export interface EditorStore {
 const INITIAL_VIEWPORT: Viewport = {
   originXmm: -1000,
   originYmm: -1000,
-  pixelsPerMm: 0.1,
+  pixelsPerMm: DEFAULT_VIEW_PIXELS_PER_MM,
 };
 
 export const useEditorStore = create<EditorStore>((set, get) => ({
@@ -118,7 +121,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   redoStack: [],
 
   loadBuilding: (document) =>
-    set({
+    set((state) => ({
       buildingDocument: document,
       changeVersion: 0,
       buildingSaveStatus: 'saved',
@@ -127,9 +130,13 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       selection: null,
       multiSelection: [],
       commandInput: '',
+      viewport:
+        state.buildingDocument?.building_id === document.building_id
+          ? state.viewport
+          : { ...INITIAL_VIEWPORT },
       undoStack: [],
       redoStack: [],
-    }),
+    })),
 
   updateBuilding: (update) => get().transact('编辑建筑', update),
 

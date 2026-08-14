@@ -5,11 +5,12 @@ import styles from './BuildingTemplateDialog.module.css';
 interface Props {
   open: boolean;
   error: string;
+  initialInput: BuildingTemplateInput;
   onClose: () => void;
   onApply: (input: BuildingTemplateInput) => void;
 }
 
-export function BuildingTemplateDialog({ open, error, onClose, onApply }: Props) {
+export function BuildingTemplateDialog({ open, error, initialInput, onClose, onApply }: Props) {
   const [frontage, setFrontage] = useState('10');
   const [depth, setDepth] = useState('4.5');
   const [roomCount, setRoomCount] = useState('4');
@@ -17,11 +18,11 @@ export function BuildingTemplateDialog({ open, error, onClose, onApply }: Props)
 
   useEffect(() => {
     if (!open) return;
-    setFrontage('10');
-    setDepth('4.5');
-    setRoomCount('4');
+    setFrontage(String(initialInput.frontageMm / 1000));
+    setDepth(String(initialInput.depthMm / 1000));
+    setRoomCount(String(initialInput.roomCount));
     setLocalError('');
-  }, [open]);
+  }, [open, initialInput.frontageMm, initialInput.depthMm, initialInput.roomCount]);
 
   if (!open) return null;
   const submit = (event: FormEvent) => {
@@ -30,7 +31,7 @@ export function BuildingTemplateDialog({ open, error, onClose, onApply }: Props)
     const depthMm = metersToMm(depth);
     const rooms = Number(roomCount);
     if (frontageMm < 100 || depthMm < 100) {
-      setLocalError('面宽和深度必须至少为 0.1 米。');
+      setLocalError('正房开间和正房面宽必须至少为 0.1 米。');
       return;
     }
     if (!Number.isInteger(rooms) || rooms < 1) {
@@ -52,14 +53,14 @@ export function BuildingTemplateDialog({ open, error, onClose, onApply }: Props)
         onSubmit={submit}
       >
         <h2>建筑草图模板</h2>
-        <p>生成矩形外墙，并沿面宽方向将内部空间等分。</p>
+        <p>根据正房尺寸生成矩形外墙，并按房间数等分内部空间。</p>
         <label>
-          <span>面宽（米）</span>
-          <input aria-label="模板面宽（米）" value={frontage} onChange={(event) => setFrontage(event.target.value)} />
+          <span>正房开间（米）</span>
+          <input aria-label="模板正房开间（米）" value={frontage} onChange={(event) => setFrontage(event.target.value)} />
         </label>
         <label>
-          <span>深度（米）</span>
-          <input aria-label="模板深度（米）" value={depth} onChange={(event) => setDepth(event.target.value)} />
+          <span>正房面宽（米）</span>
+          <input aria-label="模板正房面宽（米）" value={depth} onChange={(event) => setDepth(event.target.value)} />
         </label>
         <label>
           <span>房间数</span>

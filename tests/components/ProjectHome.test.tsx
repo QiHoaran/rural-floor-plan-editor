@@ -23,6 +23,7 @@ vi.mock('../../src/api/projectApi.ts', async () => {
 
 vi.mock('../../src/projects/imageFile.ts', () => ({
   readImageFile: vi.fn(),
+  uploadReferenceImageFile: vi.fn(),
 }));
 
 describe('ProjectHome', () => {
@@ -36,6 +37,7 @@ describe('ProjectHome', () => {
       new Blob(['zip'], { type: 'application/zip' }),
     );
     vi.mocked(imageFile.readImageFile).mockReset();
+    vi.mocked(imageFile.uploadReferenceImageFile).mockReset();
   });
 
   it('lists projects and opens the selected building', async () => {
@@ -158,6 +160,86 @@ describe('ProjectHome', () => {
       expect(screen.getByText('已导出 2 栋建筑。')).toBeTruthy();
     });
   });
+
+  it('renders compact card data and prefers vector previews', async () => {
+    vi.mocked(projectApi.listProjects).mockResolvedValue([{
+      ...projectSummary('rural_003_house_0001'),
+      updated_at: '2026-08-11T01:00:00.000Z',
+      status: 'complete',
+      room_count: 5,
+      total_floor_area_m2: 65,
+      room_semantic_progress: 100,
+      preview_kind: 'vector',
+      has_reference_image: true,
+    }]);
+    render(<ProjectHome onOpen={vi.fn()} />);
+
+    expect(await screen.findByText('rural_003_house_0001')).toBeTruthy();
+    expect(screen.getByText('已完成')).toBeTruthy();
+    expect(screen.getByText(/2026年8月11日/)).toBeTruthy();
+    expect(screen.getByText('参考图[✓]')).toBeTruthy();
+    expect(screen.getByText('房间5')).toBeTruthy();
+    expect(screen.getByText('面积65.0m²')).toBeTruthy();
+    expect(screen.getByText('标注100%')).toBeTruthy();
+    const image = document.querySelector('img');
+    expect(image?.getAttribute('src')).toBe('/api/projects/rural_003_house_0001/preview');
+  });
+
+  it('imports one dropped image into an empty project card', async () => {
+    const project = projectSummary('house_0003');
+    vi.mocked(projectApi.listProjects).mockResolvedValue([project]);
+    vi.mocked(imageFile.uploadReferenceImageFile).mockResolvedValue(
+      createEmptyBuilding('house_0003', 'reference/original.png'),
+    );
+    render(<ProjectHome onOpen={vi.fn()} />);
+    const title = await screen.findByText('house_0003');
+    const card = title.closest('button')!.parentElement!;
+    const file = new File(['png'], 'plan.png', { type: 'image/png' });
+    fireEvent.drop(card, {
+      dataTransfer: { files: [file], types: ['Files'] },
+    });
+    await waitFor(() => {
+      expect(imageFile.uploadReferenceImageFile).toHaveBeenCalledWith('house_0003', file);
+      expect(screen.getByText('参考图已导入')).toBeTruthy();
+    });
+  });
+
+  it('does not overwrite a reference image by card drop', async () => {
+    vi.mocked(projectApi.listProjects).mockResolvedValue([{
+      ...projectSummary('house_0004'),
+      preview_kind: 'reference',
+      has_reference_image: true,
+    }]);
+    render(<ProjectHome onOpen={vi.fn()} />);
+    const card = (await screen.findByText('house_0004')).closest('button')!.parentElement!;
+    fireEvent.drop(card, {
+      dataTransfer: {
+        files: [new File(['png'], 'plan.png', { type: 'image/png' })],
+        types: ['Files'],
+      },
+    });
+    expect(await screen.findByText('已有参考图，不能覆盖')).toBeTruthy();
+    expect(imageFile.uploadReferenceImageFile).not.toHaveBeenCalled();
+  });
+
+  it('rejects dropping multiple files onto one card', async () => {
+    vi.mocked(projectApi.listProjects).mockResolvedValue([
+      projectSummary('house_0005'),
+    ]);
+    render(<ProjectHome onOpen={vi.fn()} />);
+    const card = (await screen.findByText('house_0005')).closest('button')!.parentElement!;
+    fireEvent.drop(card, {
+      dataTransfer: {
+        files: [
+          new File(['a'], 'a.png', { type: 'image/png' }),
+          new File(['b'], 'b.png', { type: 'image/png' }),
+        ],
+        types: ['Files'],
+      },
+    });
+    expect(await screen.findByText('请一次拖入一张图片')).toBeTruthy();
+    expect(imageFile.uploadReferenceImageFile).not.toHaveBeenCalled();
+  });
 });
 
 function projectSummary(buildingId: string): projectApi.ProjectSummary {
@@ -174,5 +256,7 @@ function projectSummary(buildingId: string): projectApi.ProjectSummary {
     opening_progress: 100,
     validation_error_count: 0,
     validation_warning_count: 0,
+    preview_kind: 'empty',
+    has_reference_image: false,
   };
 }

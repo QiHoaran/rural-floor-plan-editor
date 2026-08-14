@@ -159,7 +159,7 @@ export function SvgCanvas({
       const world = referenceLocalToWorld(image.transform, point);
       return { x_mm: world.x, y_mm: world.y };
     });
-    setViewport(fitWorldPoints(corners, size, 0.8));
+    setViewport(fitWorldPoints(corners, size, 0.1));
     fittedReferenceKey.current = key;
   }, [autoFitReference, document, setViewport, size, sizeReady]);
 

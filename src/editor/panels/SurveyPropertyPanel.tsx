@@ -3,8 +3,8 @@ import type { HouseholdSurvey } from '@/editor/domain/buildingTypes.ts';
 import { SURVEY_ENUM_OPTIONS } from '@/editor/domain/surveyData.ts';
 import { synchronizeClearHeight } from '@/editor/domain/surveyData.ts';
 import { useEditorStore } from '@/editor/store/editorStore.ts';
-import { uploadReferenceImage } from '@/api/projectApi.ts';
-import { readImageFile } from '@/projects/imageFile.ts';
+import { removeReferenceImage } from '@/api/projectApi.ts';
+import { uploadReferenceImageFile } from '@/projects/imageFile.ts';
 import styles from './EditablePropertyPanel.module.css';
 
 const NUMBER_FIELDS: Array<{
@@ -57,12 +57,28 @@ export function SurveyPropertyPanel() {
     setImageError('');
     setImageMessage('');
     try {
-      const image = await readImageFile(file);
-      const saved = await uploadReferenceImage(document.building_id, image);
+      const saved = await uploadReferenceImageFile(document.building_id, file);
       finishSave(saved);
       setImageMessage('参考图已导入，可以开始标定和绘制。');
     } catch (error) {
       setImageError(error instanceof Error ? error.message : '参考图导入失败');
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
+  const deleteImage = async () => {
+    if (imageBusy) return;
+    if (!confirm('确定删除当前参考图？原文件会移入项目内部备份目录。')) return;
+    setImageBusy(true);
+    setImageError('');
+    setImageMessage('');
+    try {
+      const saved = await removeReferenceImage(document.building_id);
+      finishSave(saved);
+      setImageMessage('参考图已删除，原文件已备份。');
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : '参考图删除失败');
     } finally {
       setImageBusy(false);
     }
@@ -99,7 +115,17 @@ export function SurveyPropertyPanel() {
         <p className={styles.helper}>修改后会随当前建筑自动保存到 JSON，枚举属性直接保存为中文内容。</p>
         <div className={styles.sectionTitle}>参考草图</div>
         {document.reference_image.path ? (
-          <div className={styles.readOnly}>{document.reference_image.path}</div>
+          <>
+            <div className={styles.readOnly}>{document.reference_image.path}</div>
+            <button
+              type="button"
+              className={styles.dangerBtn}
+              disabled={imageBusy}
+              onClick={() => void deleteImage()}
+            >
+              删除参考图
+            </button>
+          </>
         ) : (
           <label className={styles.field}>
             <span>导入参考草图</span>

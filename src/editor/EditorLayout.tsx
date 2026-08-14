@@ -3,7 +3,7 @@
 // 整合工具栏、画布、属性面板、数据质量面板、状态栏
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, type DragEvent } from 'react';
 import { useServerAutoSave } from '@/editor/hooks/useServerAutoSave.ts';
 import { useEditorStore } from '@/editor/store/editorStore.ts';
 import { Toolbar } from '@/editor/toolbar/Toolbar.tsx';
@@ -28,6 +28,7 @@ import {
   type BuildingTemplateInput,
 } from '@/editor/domain/buildingTemplate.ts';
 import { BuildingTemplateDialog } from '@/editor/dialogs/BuildingTemplateDialog.tsx';
+import { uploadReferenceImageFile } from '@/projects/imageFile.ts';
 import styles from './EditorLayout.module.css';
 
 interface EditorLayoutProps {
@@ -64,6 +65,11 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
   const [folderBusy, setFolderBusy] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [templateError, setTemplateError] = useState('');
+  const [imageDrop, setImageDrop] = useState<{
+    status: 'hover' | 'busy' | 'success' | 'error';
+    message: string;
+  } | null>(null);
+  const imageDragDepth = useRef(0);
 
   useServerAutoSave({
     buildingId: buildingDocument?.building_id ?? null,
@@ -252,6 +258,37 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
 
   const isReadOnly = workflowStatus === 'complete';
 
+  const handleImageDrop = async (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    imageDragDepth.current = 0;
+    if (imageDrop?.status === 'busy') return;
+    if (buildingDocument.reference_image.path) {
+      setImageDrop({ status: 'error', message: '当前项目已有参考图，不能覆盖' });
+      window.setTimeout(() => setImageDrop(null), 2200);
+      return;
+    }
+    const files = [...event.dataTransfer.files];
+    if (files.length !== 1) {
+      setImageDrop({ status: 'error', message: '请一次拖入一张图片' });
+      window.setTimeout(() => setImageDrop(null), 2200);
+      return;
+    }
+    setImageDrop({ status: 'busy', message: '正在导入参考图…' });
+    try {
+      const saved = await uploadReferenceImageFile(buildingDocument.building_id, files[0]);
+      finishSave(saved);
+      setImageDrop({ status: 'success', message: '参考图已导入' });
+      window.setTimeout(() => setImageDrop(null), 1400);
+    } catch (error) {
+      setImageDrop({
+        status: 'error',
+        message: error instanceof Error ? error.message : '参考图导入失败',
+      });
+      window.setTimeout(() => setImageDrop(null), 2600);
+    }
+  };
+
   const handleOpenFolder = async () => {
     if (folderBusy) return;
     setFolderBusy(true);
@@ -286,7 +323,23 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
       setTemplateError(result.message);
       return;
     }
-    transact('应用建筑草图模板', () => result.document);
+    transact('应用建筑草图模板', () => ({
+      ...result.document,
+      survey: {
+        village_code:
+          result.document.survey?.village_code ??
+          result.document.metadata.village_code ??
+          '',
+        household_code:
+          result.document.survey?.household_code ??
+          result.document.metadata.household_code ??
+          '',
+        ...result.document.survey,
+        main_room_bay_mm: input.frontageMm,
+        main_room_width_mm: input.depthMm,
+        bay_count: input.roomCount,
+      },
+    }));
     setSelection(null);
     setTool('select');
     setTemplateError('');
@@ -294,7 +347,33 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
   };
 
   return (
-    <div className={styles.container}>
+    <div
+      className={styles.container}
+      onDragEnter={(event) => {
+        if (!event.dataTransfer.types.includes('Files')) return;
+        event.preventDefault();
+        imageDragDepth.current += 1;
+        setImageDrop({
+          status: 'hover',
+          message: buildingDocument.reference_image.path
+            ? '当前项目已有参考图，不能覆盖'
+            : '松开以导入参考图',
+        });
+      }}
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes('Files')) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = buildingDocument.reference_image.path ? 'none' : 'copy';
+      }}
+      onDragLeave={(event) => {
+        if (!event.dataTransfer.types.includes('Files')) return;
+        imageDragDepth.current = Math.max(0, imageDragDepth.current - 1);
+        if (imageDragDepth.current === 0 && imageDrop?.status === 'hover') {
+          setImageDrop(null);
+        }
+      }}
+      onDrop={(event) => void handleImageDrop(event)}
+    >
       {/* 顶部工具栏 */}
       <header className={styles.header}>
         {onBack && (
@@ -324,7 +403,7 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
             setTemplateOpen(true);
           }}
           disabled={isReadOnly}
-          title="按面宽、深度和房间数生成墙体草图"
+          title="按正房开间、正房面宽和房间数生成墙体草图"
         >
           ▦ 建筑模板
         </button>
@@ -493,9 +572,19 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
 
       {/* 底部状态栏 */}
       <StatusBar />
+      {imageDrop && (
+        <div className={`${styles.imageDropOverlay} ${styles[imageDrop.status]}`}>
+          {imageDrop.message}
+        </div>
+      )}
       <BuildingTemplateDialog
         open={templateOpen}
         error={templateError}
+        initialInput={{
+          frontageMm: buildingDocument.survey?.main_room_bay_mm ?? 10000,
+          depthMm: buildingDocument.survey?.main_room_width_mm ?? 4500,
+          roomCount: buildingDocument.survey?.bay_count ?? 4,
+        }}
         onClose={() => {
           setTemplateOpen(false);
           setTemplateError('');

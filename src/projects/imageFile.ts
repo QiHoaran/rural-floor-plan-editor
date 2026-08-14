@@ -1,4 +1,8 @@
-import type { ReferenceImageUploadInput } from '@/api/projectApi.ts';
+import {
+  uploadReferenceImage,
+  type ReferenceImageUploadInput,
+} from '@/api/projectApi.ts';
+import type { BuildingDocument } from '@/editor/domain/buildingTypes.ts';
 
 export type ImageFileData = ReferenceImageUploadInput;
 
@@ -7,10 +11,14 @@ const SUPPORTED_MIMES = new Set([
   'image/png',
   'image/webp',
 ]);
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 export async function readImageFile(file: File): Promise<ImageFileData> {
   if (!SUPPORTED_MIMES.has(file.type)) {
     throw new Error('参考草图只支持 JPEG、PNG 或 WebP');
+  }
+  if (file.size === 0 || file.size > MAX_IMAGE_BYTES) {
+    throw new Error('参考草图不能为空且不能超过 10 MB');
   }
 
   const [image_base64, dimensions] = await Promise.all([
@@ -24,6 +32,13 @@ export async function readImageFile(file: File): Promise<ImageFileData> {
     width_px: dimensions.width,
     height_px: dimensions.height,
   };
+}
+
+export async function uploadReferenceImageFile(
+  buildingId: string,
+  file: File,
+): Promise<BuildingDocument> {
+  return uploadReferenceImage(buildingId, await readImageFile(file));
 }
 
 function readBase64(file: File): Promise<string> {
