@@ -121,7 +121,8 @@ export function createProjectRouter(projectService: ProjectService): Router {
 
   router.get('/:buildingId/preview', async (request, response) => {
     const preview = await projectService.preview(request.params.buildingId);
-    response.setHeader('Cache-Control', 'no-store');
+    // 预览内容按 revision 确定，客户端 URL 带 ?v=<revision>，可安全长缓存。
+    response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     if (preview.kind === 'vector') {
       response.type('image/svg+xml').send(preview.svg);
       return;
@@ -224,6 +225,14 @@ export function createProjectRouter(projectService: ProjectService): Router {
       ),
     );
   });
+
+  for (const operation of ['check', 'auto-complete']) {
+    router.post(`/:buildingId/${operation}`, async (request, response) => {
+      const revision = request.body?.clientRevision;
+      if (!Number.isSafeInteger(revision) || revision < 0) throw new ServiceError('需要有效的建筑版本', 400, 'INVALID_REVISION');
+      response.json(await projectService.checkProject(request.params.buildingId, revision, operation === 'auto-complete'));
+    });
+  }
 
   router.post('/:buildingId/complete', async (request, response) => {
     response.json(

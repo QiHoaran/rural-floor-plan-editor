@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import request from 'supertest';
+import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../server/app.ts';
 import type { ServerConfig } from '../../server/config.ts';
@@ -28,6 +29,9 @@ describe('projects API', () => {
 
   it('creates, lists, opens, and autosaves a project', async () => {
     const app = await createApp(config);
+    const pngBytes = await sharp({
+      create: { width: 4, height: 3, channels: 3, background: '#ff0000' },
+    }).png().toBuffer();
 
     await request(app).get('/api/projects').expect(200, []);
 
@@ -37,7 +41,7 @@ describe('projects API', () => {
         building_id: 'house_0001',
         image_name: 'sketch.png',
         image_mime: 'image/png',
-        image_base64: Buffer.from('png-data').toString('base64'),
+        image_base64: pngBytes.toString('base64'),
         width_px: 640,
         height_px: 480,
       })
@@ -48,7 +52,7 @@ describe('projects API', () => {
     const image = await request(app)
       .get('/api/projects/house_0001/files/reference/original.png')
       .expect(200);
-    expect(image.body).toEqual(Buffer.from('png-data'));
+    expect(image.body).toEqual(pngBytes);
 
     const listed = await request(app).get('/api/projects').expect(200);
     expect(listed.body).toHaveLength(1);
@@ -60,9 +64,14 @@ describe('projects API', () => {
 
     const referencePreview = await request(app)
       .get('/api/projects/house_0001/preview')
-      .expect('Content-Type', /image\/png/)
+      .expect('Content-Type', /image\/webp/)
       .expect(200);
-    expect(referencePreview.body).toEqual(Buffer.from('png-data'));
+    expect(Buffer.from(referencePreview.body).length).toBeGreaterThan(0);
+    const previewFiles = await fs.readdir(
+      path.join(config.dataRoot, 'house_0001', 'preview'),
+    );
+    expect(previewFiles).toContain('thumbnail.webp');
+    expect(previewFiles).toContain('preview.meta.json');
 
     const opened = await request(app)
       .get('/api/projects/house_0001')

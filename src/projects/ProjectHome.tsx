@@ -2,7 +2,7 @@
 // 项目首页 — v2.1.0 丰富卡片展示
 // ============================================================
 
-import { useCallback, useEffect, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
 import {
   listProjects,
   listTrashedProjects,
@@ -16,6 +16,7 @@ import type { BuildingDocument } from '@/editor/domain/buildingTypes.ts';
 import { NewProjectDialog } from './NewProjectDialog.tsx';
 import { BulkSurveyImportDialog } from './BulkSurveyImportDialog.tsx';
 import { uploadReferenceImageFile } from './imageFile.ts';
+import { useProjectIndex, readIndexState } from './useProjectIndex.ts';
 import styles from './ProjectHome.module.css';
 
 interface ProjectHomeProps {
@@ -30,17 +31,40 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export function ProjectHome({ onOpen }: ProjectHomeProps) {
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const requestGeneration = useRef(0);
+  const [projects, setProjects] = useState<ProjectSummary[]>(() => readIndexState().projects ?? []);
+  const projectsRef = useRef(projects);
+  projectsRef.current = projects;
   const [trashed, setTrashed] = useState<ProjectSummary[]>([]);
-  const [state, setState] = useState<'loading' | 'ready' | 'error'>(
-    'loading',
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>(() =>
+    readIndexState().projects?.length ? 'ready' : 'loading',
   );
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importMessage, setImportMessage] = useState('');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [batchBusy, setBatchBusy] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(readIndexState().selected ?? []));
+  const [legacyBatchBusy, setBatchBusy] = useState(false);
   const [batchMessage, setBatchMessage] = useState('');
+  const index = useProjectIndex(projects, setProjects, selectedIds, setSelectedIds, setBatchMessage);
+  const batchBusy = legacyBatchBusy || index.busy;
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [trashError, setTrashError] = useState('');
+  const [openError, setOpenError] = useState('');
+  const [opening, setOpening] = useState(false);
+  const openBuilding = async (id: string, document?: BuildingDocument) => {
+    if (opening || batchBusy) return;
+    index.remember(id); setOpening(true); setOpenError('');
+    try { if (document) await onOpen(id, document); else await onOpen(id); }
+    catch (error) { setOpenError(error instanceof Error ? error.message : '无法打开建筑'); }
+    finally { setOpening(false); }
+  };
+  useEffect(() => {
+    if (!trashOpen) return;
+    let active = true;
+    setTrashError('');
+    listTrashedProjects().then(items => { if (active) setTrashed(items); }).catch(() => { if (active) setTrashError('无法读取回收站'); });
+    return () => { active = false; };
+  }, [trashOpen, projects]);
   const [dropState, setDropState] = useState<{
     buildingId: string;
     status: 'hover' | 'busy' | 'success' | 'error';
@@ -49,12 +73,18 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
 
   const refresh = useCallback(() => {
     let active = true;
-    setState('loading');
-    Promise.all([listProjects(), listTrashedProjects()])
-      .then(([activeItems, trashedItems]) => {
-        if (!active) return;
-        setProjects(activeItems);
-        setTrashed(trashedItems);
+    const generation = ++requestGeneration.current;
+    const baseline = new Map(projectsRef.current.map(p => [p.building_id, p]));
+    listProjects()
+      .then((activeItems) => {
+        if (!active || generation !== requestGeneration.current) return;
+        setProjects(current => activeItems.map(item => {
+          const local = current.find(p => p.building_id === item.building_id);
+          // A concurrent check may finish after this list request took its snapshot.
+          if (local && local !== baseline.get(item.building_id) && local.revision >= item.revision) return local;
+          return item;
+        }));
+
         const activeIds = new Set(activeItems.map((item) => item.building_id));
         setSelectedIds((current) =>
           new Set([...current].filter((id) => activeIds.has(id))),
@@ -62,7 +92,7 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
         setState('ready');
       })
       .catch(() => {
-        if (active) setState('error');
+        if (active && generation === requestGeneration.current) setState('error');
       });
     return () => {
       active = false;
@@ -75,6 +105,7 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
     if (!confirm(`确定删除建筑「${buildingId}」？可稍后从回收站恢复。`)) return;
     try {
       await trashProject(buildingId);
+      setProjects(current => current.filter(p => p.building_id !== buildingId));
       refresh();
     } catch (err) {
       alert(
@@ -87,7 +118,7 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
     try {
       const document = await restoreProject(buildingId);
       refresh();
-      onOpen(buildingId, document);
+      void openBuilding(buildingId, document);
     } catch (err) {
       alert(
         err instanceof Error ? err.message : '恢复失败',
@@ -153,7 +184,7 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
   ) => {
     event.preventDefault();
     event.stopPropagation();
-    if (dropState?.status === 'busy') return;
+    if (batchBusy || dropState?.status === 'busy') return;
     if (project.has_reference_image) {
       setDropState({
         buildingId: project.building_id,
@@ -202,7 +233,7 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
   };
 
   return (
-    <main className={styles.home}>
+    <main ref={index.homeRef} className={styles.home} onScroll={() => index.remember()}>
       <section className={styles.hero}>
         <div>
           <p className={styles.eyebrow}>RURAL BUILDING DATA</p>
@@ -212,8 +243,8 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
           </p>
         </div>
         <div className={styles.heroActions}>
-          <button className={styles.secondaryButton} onClick={() => setImportDialogOpen(true)}>批量导入属性</button>
-          <button className={styles.primaryButton} onClick={() => setDialogOpen(true)}>新建建筑</button>
+          <button className={styles.secondaryButton} disabled={batchBusy} onClick={() => setImportDialogOpen(true)}>批量导入属性</button>
+          <button className={styles.primaryButton} disabled={batchBusy} onClick={() => setDialogOpen(true)}>新建建筑</button>
         </div>
       </section>
 
@@ -221,18 +252,45 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
         <div className={styles.importMessage}>{batchMessage || importMessage}</div>
       )}
 
+      {openError && <p role="alert" className={styles.error}>{openError}</p>}
       <section className={styles.projects}>
+        <div className={styles.indexToolbar}>
+          <div className={styles.viewSwitch} aria-label="显示模式">
+            <button aria-pressed={index.view === 'cards'} onClick={() => index.changeView('cards')}>卡片</button>
+            <button aria-pressed={index.view === 'list'} onClick={() => index.changeView('list')}>列表</button>
+          </div>
+          <input aria-label="搜索建筑" placeholder="搜索编号或名称" value={index.query} onChange={e => { index.setQuery(e.target.value); index.setPinned(null); }} />
+          <select aria-label="工作流筛选" value={index.status} onChange={e => { index.setStatus(e.target.value); index.setPinned(null); }}>
+            <option value="all">全部状态</option>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          <select aria-label="检查筛选" value={index.check} onChange={e => { index.setCheck(e.target.value); index.setPinned(null); }}>
+            <option value="all">全部检查结果</option><option value="unchecked">待检查</option><option value="passed">检查通过</option><option value="warning">有警告</option><option value="error">检查失败</option>
+          </select>
+          <select aria-label="排序" value={index.sort} onChange={e => index.setSort(e.target.value)}>
+            <option value="id">编号顺序</option><option value="updated">最近更新</option><option value="issues">问题优先</option>
+          </select>
+          <span>{index.filtered.length} 栋</span>
+          <button disabled={batchBusy} onClick={refresh}>刷新列表</button>
+        </div>
+        {index.retained && <p>刚编辑的建筑已不符合筛选，暂时保留，调整筛选后移除。</p>}
+        {index.progress && <p role="status">{index.progress}</p>}
+        {Object.keys(index.failures).length > 0 && <div className={styles.error}>
+          <button onClick={index.retry} disabled={batchBusy}>选中失败项</button>
+          <details><summary>查看处理失败原因</summary>{Object.entries(index.failures).map(([id, message]) => <p key={id}>{id}：{message}</p>)}</details>
+        </div>}
         <div className={styles.projectHeader}>
           <h2>建筑项目</h2>
           {projects.length > 0 && (
             <div className={styles.selectionActions}>
               <span>已选 {selectedIds.size} 栋</span>
+              <button disabled={batchBusy || !selectedIds.size} onClick={() => void index.batch(false)}>批量检查</button>
+              <button disabled={batchBusy || !selectedIds.size} onClick={() => void index.batch(true)}>批量完成</button>
               <button
                 type="button"
-                onClick={() => setSelectedIds(new Set(projects.map((item) => item.building_id)))}
-                disabled={batchBusy || selectedIds.size === projects.length}
+                onClick={() => setSelectedIds(new Set([...selectedIds, ...index.filtered.map((item) => item.building_id)]))}
+                disabled={batchBusy || index.filtered.every(item => selectedIds.has(item.building_id))}
               >
-                全选
+                全选筛选结果
               </button>
               <button
                 type="button"
@@ -260,15 +318,18 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
           )}
         </div>
         {state === 'loading' && <p>正在读取 data 目录…</p>}
-        {state === 'error' && <p className={styles.error}>无法读取建筑项目</p>}
+        {state === 'error' && <p className={styles.error}>无法更新建筑项目 <button onClick={refresh}>重试</button></p>}
         {state === 'ready' && projects.length === 0 && (
           <div className={styles.empty}>尚无建筑，创建第一栋建筑。</div>
         )}
-        <div className={styles.projectGrid}>
-          {projects.map((project) => (
+        <div className={index.view === 'list' ? styles.projectList : styles.projectGrid}>
+          {index.view === 'list' && <div className={styles.listHeader}><span>选择</span><span>建筑 / 状态 / 检查</span><span>房间 · 面积 · 标注 · 更新时间</span><span>操作</span></div>}
+          {index.visible.map((project) => (
             <div
               key={project.building_id}
-              className={`${styles.projectCard} ${
+              data-building-id={project.building_id}
+              data-check-status={project.check?.status ?? 'unchecked'}
+              className={`${styles.projectCard} ${project.check?.status === 'error' ? styles.checkError : ''} ${index.highlight === project.building_id ? styles.highlight : ''} ${
                 selectedIds.has(project.building_id) ? styles.projectCardSelected : ''
               } ${dropState?.buildingId === project.building_id ? styles.projectCardDropActive : ''}`}
               onDragEnter={(event) => {
@@ -299,26 +360,37 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
                 <input
                   type="checkbox"
                   aria-label={`选择 ${project.building_id}`}
+                  disabled={batchBusy}
                   checked={selectedIds.has(project.building_id)}
                   onChange={() => toggleSelected(project.building_id)}
                 />
               </label>
               <button
                 className={styles.projectCardMain}
-                onClick={() => onOpen(project.building_id)}
+                disabled={batchBusy || opening}
+                onClick={() => void openBuilding(project.building_id)}
               >
                 <div className={styles.cardThumbnail} aria-hidden="true">
                   {project.preview_kind !== 'empty' && (
-                    <img src={projectPreviewUrl(project.building_id)} alt="" />
+                    <img
+                      src={projectPreviewUrl(project.building_id, project.revision)}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                    />
                   )}
                 </div>
                 <div className={styles.cardInfo}>
                   <div className={styles.cardInfoRow}>
-                    <strong>{project.building_id}</strong>
+                    <strong title={project.name}>{project.building_id}</strong>
                     <span className={`${styles.statusBadge} ${styles[project.status]}`}>
                       {STATUS_LABELS[project.status] ?? project.status}
                     </span>
                   </div>
+                  <span className={styles.cardName}>{project.name !== project.building_id ? project.name : ''}</span>
+                  <span className={project.check?.status === 'error' ? styles.errorCount : project.check?.status === 'warning' ? styles.warningCount : styles.checkLabel}>
+                    {{ unchecked: '待重新检查', passed: '检查通过', warning: '检查有警告', error: '检查失败' }[project.check?.status ?? 'unchecked']}
+                  </span>
                   <div className={styles.cardInfoRow}>
                     <time>{formatProjectDate(project.updated_at)}</time>
                     <span>参考图[{project.has_reference_image ? '✓' : ' '}]</span>
@@ -330,7 +402,9 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
                   </div>
                 </div>
               </button>
+              <button className={styles.detailButton} aria-label={`详情 ${project.building_id}`} onClick={() => index.setDetails(project.building_id)}>详情</button>
               <button
+                disabled={batchBusy}
                 className={styles.deleteBtn}
                 aria-label={`删除 ${project.building_id}`}
                 title="移入回收站"
@@ -348,7 +422,10 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
         </div>
       </section>
 
-      {trashed.length > 0 && (
+      <details className={styles.projects} onToggle={e => setTrashOpen(e.currentTarget.open)}>
+        <summary>回收站</summary>
+        {trashError && <p role="alert">{trashError}</p>}
+      {trashOpen && (
         <section className={styles.projects}>
           <h2>回收站</h2>
           <div className={styles.projectGrid}>
@@ -377,10 +454,25 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
         </section>
       )}
 
+      </details>
+      {index.details && (() => {
+        const project = projects.find(p => p.building_id === index.details);
+        if (!project) return null;
+        return <div className={styles.dialogBackdrop} onClick={() => index.setDetails(null)}>
+          <section className={`${styles.dialog} ${styles.wideDialog}`} role="dialog" aria-modal="true" aria-label="建筑检查详情" onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === 'Escape') index.setDetails(null); }}>
+            <h2>{project.building_id} · {project.name}</h2>
+            <p>房间 {project.room_count ?? 0} · 面积 {(project.total_floor_area_m2 ?? 0).toFixed(1)}m² · 标注 {project.room_semantic_progress ?? 0}%</p>
+            <p>更新于 {formatProjectDate(project.updated_at)} · {project.check?.checked_at ? `检查于 ${new Date(project.check.checked_at).toLocaleString()}` : '尚未检查当前版本'}</p>
+            {project.check?.issues.map((issue, i) => <p key={i} className={issue.severity === 'error' ? styles.errorCount : styles.warningCount}>{issue.severity === 'error' ? '错误' : issue.severity === 'warning' ? '警告' : '信息'}：{issue.message}</p>)}
+            {project.check?.status === 'passed' && <p>检查通过</p>}
+            <button autoFocus onClick={() => index.setDetails(null)}>关闭</button>
+          </section>
+        </div>;
+      })()}
       <NewProjectDialog
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
-        onCreated={onOpen}
+        onCreated={openBuilding}
       />
       <BulkSurveyImportDialog
         open={importDialogOpen}

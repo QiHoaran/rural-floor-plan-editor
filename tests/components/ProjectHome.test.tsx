@@ -28,6 +28,8 @@ vi.mock('../../src/projects/imageFile.ts', () => ({
 
 describe('ProjectHome', () => {
   beforeEach(() => {
+    sessionStorage.clear();
+    localStorage.clear();
     vi.clearAllMocks();
     vi.mocked(projectApi.listProjects).mockResolvedValue([]);
     vi.mocked(projectApi.listTrashedProjects).mockResolvedValue([]);
@@ -38,6 +40,21 @@ describe('ProjectHome', () => {
     );
     vi.mocked(imageFile.readImageFile).mockReset();
     vi.mocked(imageFile.uploadReferenceImageFile).mockReset();
+  });
+
+  it('shares selection between card and list modes and loads trash only on demand', async () => {
+    vi.mocked(projectApi.listProjects).mockResolvedValue([
+      { building_id: 'house_10', status: 'draft', updated_at: '', revision: 1 },
+      { building_id: 'house_2', status: 'draft', updated_at: '', revision: 1 },
+    ] as projectApi.ProjectSummary[]);
+    render(<ProjectHome onOpen={vi.fn()} />);
+    fireEvent.click(await screen.findByLabelText('选择 house_2'));
+    fireEvent.click(screen.getByRole('button', { name: '列表' }));
+    expect((screen.getByLabelText('选择 house_2') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole('button', { name: '批量检查' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(projectApi.listTrashedProjects).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('回收站'));
+    await waitFor(() => expect(projectApi.listTrashedProjects).toHaveBeenCalledTimes(1));
   });
 
   it('lists projects and opens the selected building', async () => {
@@ -148,7 +165,7 @@ describe('ProjectHome', () => {
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL });
     render(<ProjectHome onOpen={vi.fn()} />);
 
-    fireEvent.click(await screen.findByRole('button', { name: '全选' }));
+    fireEvent.click(await screen.findByRole('button', { name: '全选筛选结果' }));
     fireEvent.click(screen.getByRole('button', { name: '批量导出' }));
 
     await waitFor(() => {
@@ -175,14 +192,14 @@ describe('ProjectHome', () => {
     render(<ProjectHome onOpen={vi.fn()} />);
 
     expect(await screen.findByText('rural_003_house_0001')).toBeTruthy();
-    expect(screen.getByText('已完成')).toBeTruthy();
+    expect(screen.getByText('已完成', { selector: 'span' })).toBeTruthy();
     expect(screen.getByText(/2026年8月11日/)).toBeTruthy();
     expect(screen.getByText('参考图[✓]')).toBeTruthy();
     expect(screen.getByText('房间5')).toBeTruthy();
     expect(screen.getByText('面积65.0m²')).toBeTruthy();
     expect(screen.getByText('标注100%')).toBeTruthy();
     const image = document.querySelector('img');
-    expect(image?.getAttribute('src')).toBe('/api/projects/rural_003_house_0001/preview');
+    expect(image?.getAttribute('src')).toBe('/api/projects/rural_003_house_0001/preview?v=0');
   });
 
   it('imports one dropped image into an empty project card', async () => {

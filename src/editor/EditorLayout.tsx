@@ -71,7 +71,7 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
   } | null>(null);
   const imageDragDepth = useRef(0);
 
-  useServerAutoSave({
+  const flushAutoSave = useServerAutoSave({
     buildingId: buildingDocument?.building_id ?? null,
     document: buildingDocument,
     changeVersion,
@@ -378,7 +378,13 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
       <header className={styles.header}>
         {onBack && (
           <button
-            onClick={onBack}
+            disabled={deliveryBusy}
+            onClick={async () => {
+              setDeliveryBusy(true);
+              try { await flushAutoSave(); onBack(); }
+              catch (error) { setWorkflowError(error instanceof Error ? error.message : '保存失败，暂时无法返回'); }
+              finally { setDeliveryBusy(false); }
+            }}
             className={styles.headerBtnSecondary}
           >
             ← 返回

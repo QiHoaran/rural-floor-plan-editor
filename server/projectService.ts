@@ -2,11 +2,12 @@ import fs from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import path from 'node:path';
 import { ZipArchive } from 'archiver';
+import sharp from 'sharp';
 import { createEmptyBuilding } from '../src/editor/domain/buildingDocument.js';
 import type { BuildingDocument } from '../src/editor/domain/buildingTypes.js';
 import { prepareExportDocument } from '../src/editor/domain/exportUtils.js';
 import { computeBuildingStatistics } from '../src/editor/domain/buildingStatistics.js';
-import { validateBuildingDocumentFull } from '../src/editor/domain/buildingValidation.js';
+import { validateBuildingDocumentFull, getValidationMessageZh } from '../src/editor/domain/buildingValidation.js';
 import { generateSpatialGraph } from '../src/editor/domain/spatialGraph.js';
 import { exportBuildingToGeoJson } from '../src/editor/domain/buildingGeoJson.js';
 import { migrateToCurrent } from '../src/editor/domain/migrations/index.js';
@@ -75,7 +76,18 @@ export interface ReferenceImageInput {
   heightPx: number;
 }
 
+export interface ProjectCheck {
+  status: 'unchecked' | 'passed' | 'warning' | 'error';
+  revision?: number;
+  checked_at?: string;
+  issues: Array<{ severity: string; code: string; message: string }>;
+}
+export interface ProjectCheckResult {
+  outcome: 'checked' | 'completed' | 'failed' | 'skipped';
+  summary: ProjectSummary;
+}
 export interface ProjectSummary {
+  check?: ProjectCheck;
   building_id: string;
   name: string;
   updated_at: string;
@@ -117,7 +129,68 @@ const EXTENSION_BY_MIME: Record<string, string> = {
 
 const REVISIONS_DIR = 'revisions';
 
+/** 列表/预览等批量读取的最大并发数，避免 465 个项目串行 IO。 */
+const LIST_CONCURRENCY = 32;
+
 export class ProjectService {
+  private readonly summaryCache = new Map<string, { signature: string; summary: ProjectSummary }>();
+
+  private async documentSignature(buildingId: string): Promise<string> {
+    const dir = resolveBuildingDir(this.dataRoot, buildingId);
+    return JSON.stringify(await Promise.all(['building.json', 'draft/building.autosave.json'].map(async file => {
+      try { const stat = await fs.stat(path.join(dir, file)); return [stat.size, stat.mtimeMs, stat.ctimeMs, stat.ino]; }
+      catch (error) { if (isNodeError(error) && error.code === 'ENOENT') return null; throw error; }
+    })));
+  }
+
+  private async indexedSummary(buildingId: string): Promise<ProjectSummary> {
+    const signature = await this.documentSignature(buildingId);
+    const cached = this.summaryCache.get(buildingId);
+    if (cached?.signature === signature) return cached.summary;
+    const { document } = await this.readDocument(buildingId);
+    let check: ProjectCheck = { status: 'unchecked', issues: [] };
+    try {
+      const stored = JSON.parse(await fs.readFile(path.join(resolveBuildingDir(this.dataRoot, buildingId), '.index-check.json'), 'utf8'));
+      if (stored.signature === signature && stored.check.revision === document.metadata.revision) check = stored.check;
+    } catch { /* Derived data can be regenerated. */ }
+    const summary = { ...summarizeDocument(document), check };
+    if (signature === await this.documentSignature(buildingId)) this.summaryCache.set(buildingId, { signature, summary });
+    return summary;
+  }
+
+  async checkProject(buildingId: string, revision: number, complete = false): Promise<ProjectCheckResult> {
+    const safeId = validateBuildingId(buildingId);
+    return this.withProjectLock(safeId, async () => {
+      const signature = await this.documentSignature(safeId);
+      const { document } = await this.readDocument(safeId);
+      if (document.metadata.revision !== revision) throw new ServiceError('建筑已更新，请刷新后重试', 409, 'REVISION_CONFLICT');
+      if (complete && document.workflow.status === 'complete') return { outcome: 'skipped', summary: await this.indexedSummary(safeId) };
+      const validation = validateForOperation(document, 'complete');
+      const issues = [
+        ...validation.schemaResult.errors.map(e => ({ severity: 'error', code: e.keyword, message: `${e.path}: ${e.message}` })),
+        ...validation.businessIssues.map(e => ({ severity: e.severity, code: e.code, message: getValidationMessageZh(e) })),
+        ...(complete ? checkResearchExportRequirements(document).map(e => ({ severity: 'error', code: 'RESEARCH_REQUIREMENT', message: e.message })) : []),
+      ];
+      const failed = issues.some(e => e.severity === 'error');
+      if (signature !== await this.documentSignature(safeId)) throw new ServiceError('建筑已更新，请重试', 409, 'REVISION_CONFLICT');
+      let saved = document;
+      if (complete && !failed) {
+        if (!['draft', 'pending_review', 'reviewed'].includes(document.workflow.status)) throw new ServiceError('当前状态无法完成', 409, 'INVALID_TRANSITION');
+        saved = await this.persistCompleted(safeId, {
+          ...document,
+          workflow: { ...document.workflow, status: 'reviewed',
+            ...(document.workflow.status !== 'reviewed' ? { reviewer: 'system:batch-auto-review', reviewed_at: new Date().toISOString() } : {}) },
+        }, document.metadata.revision);
+      }
+      const check: ProjectCheck = { status: failed ? 'error' : issues.some(e => e.severity === 'warning') ? 'warning' : 'passed', revision: saved.metadata.revision, checked_at: new Date().toISOString(), issues };
+      const finalSignature = await this.documentSignature(safeId);
+      await atomicWriteJson(path.join(resolveBuildingDir(this.dataRoot, safeId), '.index-check.json'), { signature: finalSignature, check });
+      const summary = { ...summarizeDocument(saved), check };
+      this.summaryCache.set(safeId, { signature: finalSignature, summary });
+      return { outcome: failed ? 'failed' : complete ? 'completed' : 'checked', summary };
+    });
+  }
+
   private readonly projectQueues = new Map<string, Promise<void>>();
 
   constructor(
@@ -337,22 +410,40 @@ export class ProjectService {
 
   async preview(buildingId: string): Promise<ProjectPreview> {
     const safeId = validateBuildingId(buildingId);
-    const { document } = await this.open(safeId);
+    const { document } = await this.readDocument(safeId);
+    const previewDir = path.join(
+      resolveBuildingDir(this.dataRoot, safeId),
+      'preview',
+    );
+    const revision = document.metadata?.revision ?? 0;
+
+    // 命中磁盘缓存（revision 不变即内容不变），避免重复渲染 SVG 或下采样参考图。
+    const cached = await this.readPreviewCache(previewDir, revision);
+    if (cached) return cached;
+
     if (Object.keys(document.walls ?? {}).length > 0) {
-      return {
+      const svg = renderBuildingSvg(document, {
+        pixelsPerMm: 0.1,
+        includeScaleBar: false,
+      });
+      await fs.mkdir(previewDir, { recursive: true });
+      await fs.writeFile(path.join(previewDir, 'preview.svg'), svg, 'utf8');
+      await atomicWriteJson(path.join(previewDir, 'preview.meta.json'), {
+        revision,
         kind: 'vector',
-        svg: renderBuildingSvg(document, {
-          pixelsPerMm: 0.1,
-          includeScaleBar: false,
-        }),
-      };
+      });
+      return { kind: 'vector', svg };
     }
     if (document.reference_image.path) {
-      return {
+      const sourcePath = this.resolveFile(safeId, document.reference_image.path);
+      const thumbnailPath = path.join(previewDir, 'thumbnail.webp');
+      await fs.mkdir(previewDir, { recursive: true });
+      await renderReferenceThumbnail(sourcePath, thumbnailPath);
+      await atomicWriteJson(path.join(previewDir, 'preview.meta.json'), {
+        revision,
         kind: 'reference',
-        filePath: this.resolveFile(safeId, document.reference_image.path),
-        mimeType: document.reference_image.mime_type,
-      };
+      });
+      return { kind: 'reference', filePath: thumbnailPath, mimeType: 'image/webp' };
     }
     return { kind: 'empty' };
   }
@@ -417,20 +508,26 @@ export class ProjectService {
   async list(): Promise<ProjectSummary[]> {
     await fs.mkdir(this.dataRoot, { recursive: true });
     const entries = await fs.readdir(this.dataRoot, { withFileTypes: true });
-    const projects: ProjectSummary[] = [];
+    const dirs = entries.filter(
+      (entry) => entry.isDirectory() && !entry.name.startsWith('.'),
+    );
 
-    for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-      try {
-        const { document } = await this.open(entry.name);
-        projects.push(summarizeDocument(document));
-      } catch {
-        // Ignore unrelated or incomplete directories in data/.
-      }
-    }
+    const projects = (
+      await mapWithConcurrency(dirs, LIST_CONCURRENCY, async (entry) => {
+        try {
+          // 轻量读取：只做迁移，跳过 schema + 业务全量校验（摘要用的是已持久化字段）。
+          return await this.indexedSummary(entry.name);
+        } catch {
+          // Ignore unrelated or incomplete directories in data/.
+          return null;
+        }
+      })
+    ).filter((summary): summary is ProjectSummary => summary !== null);
 
+    const activeIds = new Set(projects.map(p => p.building_id));
+    for (const id of this.summaryCache.keys()) if (!activeIds.has(id)) this.summaryCache.delete(id);
     return projects.sort((a, b) =>
-      a.building_id.localeCompare(b.building_id),
+      a.building_id.localeCompare(b.building_id, 'zh-CN', { numeric: true }),
     );
   }
 
@@ -442,16 +539,20 @@ export class ProjectService {
       return [];
     }
     const entries = await fs.readdir(trashDir, { withFileTypes: true });
-    const projects: ProjectSummary[] = [];
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      try {
-        const { document } = await this.openTrashed(entry.name);
-        projects.push(summarizeDocument(document));
-      } catch {
-        // Ignore unreadable trashed directories.
-      }
-    }
+    const dirs = entries.filter((entry) => entry.isDirectory());
+
+    const projects = (
+      await mapWithConcurrency(dirs, LIST_CONCURRENCY, async (entry) => {
+        try {
+          const { document } = await this.openTrashed(entry.name);
+          return summarizeDocument(document);
+        } catch {
+          // Ignore unreadable trashed directories.
+          return null;
+        }
+      })
+    ).filter((summary): summary is ProjectSummary => summary !== null);
+
     return projects.sort((a, b) =>
       a.building_id.localeCompare(b.building_id),
     );
@@ -577,6 +678,41 @@ export class ProjectService {
     recovered_from_draft: boolean;
     validation_warnings: string[];
   }> {
+    const { document, recovered_from_draft, migrationWarnings } =
+      await this.readDocument(buildingId);
+
+    // 打开时校验但不阻止 — 收集警告供调用方参考
+    const validation = validateForOperation(document, 'open');
+    const validation_warnings: string[] = [...migrationWarnings];
+    if (!validation.schemaResult.valid) {
+      validation_warnings.push(
+        `Schema 校验未通过 (${validation.schemaResult.errors.length} 项)，数据可能不完整`,
+      );
+    }
+    const businessErrors = validation.businessIssues.filter(
+      (i) => i.severity === 'error',
+    );
+    if (businessErrors.length > 0) {
+      validation_warnings.push(
+        `业务校验错误 (${businessErrors.length} 项)：${businessErrors.map((e) => e.code).join(', ')}`,
+      );
+    }
+
+    return {
+      document,
+      recovered_from_draft,
+      validation_warnings,
+    };
+  }
+
+  /** 读取 draft + building.json，取较新者并迁移到当前 schema，不执行校验（供列表/预览等轻量路径复用）。 */
+  private async readDocument(
+    buildingId: string,
+  ): Promise<{
+    document: BuildingDocument;
+    recovered_from_draft: boolean;
+    migrationWarnings: string[];
+  }> {
     const buildingDir = resolveBuildingDir(this.dataRoot, buildingId);
     const draftPath = path.join(
       buildingDir,
@@ -603,33 +739,51 @@ export class ProjectService {
 
     // 迁移旧版本数据到当前 schema
     const migration = migrateToCurrent(result.document as unknown as Record<string, unknown>);
-    const document = migration.document;
-
-    // 打开时校验但不阻止 — 收集警告供调用方参考
-    const validation = validateForOperation(document, 'open');
-    const validation_warnings: string[] = [
-      ...migration.warnings,
-    ];
-    if (!validation.schemaResult.valid) {
-      validation_warnings.push(
-        `Schema 校验未通过 (${validation.schemaResult.errors.length} 项)，数据可能不完整`,
-      );
-    }
-    const businessErrors = validation.businessIssues.filter(
-      (i) => i.severity === 'error',
-    );
-    if (businessErrors.length > 0) {
-      validation_warnings.push(
-        `业务校验错误 (${businessErrors.length} 项)：${businessErrors.map((e) => e.code).join(', ')}`,
-      );
-    }
-
     return {
-      document,
+      document: migration.document,
       recovered_from_draft:
         result.recovered_from_draft || migration.warnings.length > 0,
-      validation_warnings,
+      migrationWarnings: migration.warnings,
     };
+  }
+
+  /** 读取磁盘缩略图缓存；revision 不匹配或文件缺失时返回 null 以触发重新生成。 */
+  private async readPreviewCache(
+    previewDir: string,
+    revision: number,
+  ): Promise<ProjectPreview | null> {
+    let meta: { revision?: number; kind?: string } | null = null;
+    try {
+      meta = JSON.parse(
+        await fs.readFile(path.join(previewDir, 'preview.meta.json'), 'utf8'),
+      ) as { revision?: number; kind?: string };
+    } catch {
+      return null;
+    }
+    if (typeof meta.revision !== 'number' || meta.revision !== revision) {
+      return null;
+    }
+    if (meta.kind === 'vector') {
+      try {
+        const svg = await fs.readFile(
+          path.join(previewDir, 'preview.svg'),
+          'utf8',
+        );
+        return { kind: 'vector', svg };
+      } catch {
+        return null;
+      }
+    }
+    if (meta.kind === 'reference') {
+      const thumbnailPath = path.join(previewDir, 'thumbnail.webp');
+      try {
+        await fs.access(thumbnailPath);
+        return { kind: 'reference', filePath: thumbnailPath, mimeType: 'image/webp' };
+      } catch {
+        return null;
+      }
+    }
+    return null;
   }
 
   // ============================================================
@@ -763,13 +917,18 @@ export class ProjectService {
     assertValidForOperation(document, 'complete');
     this.assertResearchRequirements(document);
 
+    return this.persistCompleted(safeId, document, current.metadata.revision);
+    });
+  }
+
+  private async persistCompleted(safeId: string, document: BuildingDocument, revision: number): Promise<BuildingDocument> {
     const completed = prepareExportDocument({
       ...document,
       metadata: {
         ...document.metadata,
         status: 'complete',
         updated_at: new Date().toISOString(),
-        revision: current.metadata.revision + 1,
+        revision: revision + 1,
       },
       workflow: {
         ...document.workflow,
@@ -793,7 +952,6 @@ export class ProjectService {
 
     // 保存到 revisions
     return completed;
-    });
   }
 
   async reopen(buildingId: string): Promise<BuildingDocument> {
@@ -1424,4 +1582,49 @@ function isDocumentNewer(
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error;
+}
+
+/** 以固定并发上限执行异步任务，保持结果顺序。 */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex++;
+        results[index] = await fn(items[index]);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+/** 将参考图下采样为 WebP 缩略图（最长边 480px），用于首页卡片预览。 */
+async function renderReferenceThumbnail(
+  sourcePath: string,
+  targetPath: string,
+): Promise<void> {
+  try {
+    await sharp(sourcePath, { limitInputPixels: false })
+      .resize({
+        width: 480,
+        height: 480,
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .webp({ quality: 80 })
+      .toFile(targetPath);
+  } catch (error) {
+    throw new ServiceError(
+      `缩略图生成失败：${error instanceof Error ? error.message : '未知错误'}`,
+      500,
+      'THUMBNAIL_RENDER_FAILED',
+    );
+  }
 }

@@ -15,6 +15,7 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${e2ePort}`,
     headless: true,
+    channel: process.env.E2E_BROWSER_CHANNEL || undefined,
     screenshot: 'only-on-failure',
   },
   webServer: {

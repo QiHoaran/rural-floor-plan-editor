@@ -6,7 +6,23 @@ import type {
 
 // ---- 类型定义 ----
 
+export interface ProjectCheck {
+  status: 'unchecked' | 'passed' | 'warning' | 'error';
+  revision?: number;
+  checked_at?: string;
+  issues: Array<{ severity: string; code: string; message: string }>;
+}
+export interface ProjectCheckResult {
+  outcome: 'checked' | 'completed' | 'failed' | 'skipped';
+  summary: ProjectSummary;
+}
+export function checkProject(buildingId: string, clientRevision: number, complete = false): Promise<ProjectCheckResult> {
+  return requestJson(`/api/projects/${encodeURIComponent(buildingId)}/${complete ? 'auto-complete' : 'check'}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ clientRevision }),
+  });
+}
 export interface ProjectSummary {
+  check?: ProjectCheck;
   building_id: string;
   name: string;
   updated_at: string;
@@ -121,8 +137,10 @@ export function removeReferenceImage(
   });
 }
 
-export function projectPreviewUrl(buildingId: string): string {
-  return `/api/projects/${encodeURIComponent(buildingId)}/preview`;
+export function projectPreviewUrl(buildingId: string, revision?: number): string {
+  const base = `/api/projects/${encodeURIComponent(buildingId)}/preview`;
+  if (typeof revision !== 'number') return base;
+  return `${base}?v=${revision}`;
 }
 
 export function listRoomFunctionTemplates(): Promise<CustomFunctionType[]> {

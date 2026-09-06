@@ -21,6 +21,51 @@ describe('useServerAutoSave', () => {
     vi.clearAllMocks();
   });
 
+  it('flushes pending changes before leaving without waiting for debounce', async () => {
+    vi.useFakeTimers();
+    const document = createEmptyBuilding('flush_house', '');
+    vi.mocked(projectApi.autosaveProject).mockResolvedValue(document);
+    const { result, rerender } = renderHook(({ version }) => useServerAutoSave({
+      buildingId: 'flush_house', document, changeVersion: version,
+      onSaving: vi.fn(), onSaved: vi.fn(), onError: vi.fn(),
+    }), { initialProps: { version: 0 } });
+    rerender({ version: 1 });
+    await act(async () => { await result.current(); });
+    expect(projectApi.autosaveProject).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(projectApi.autosaveProject).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a failed flush and allows retry without losing pending changes', async () => {
+    vi.useFakeTimers();
+    const document = createEmptyBuilding('retry_house', '');
+    vi.mocked(projectApi.autosaveProject).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(document);
+    const { result, rerender } = renderHook(({ version }) => useServerAutoSave({
+      buildingId: 'retry_house', document, changeVersion: version,
+      onSaving: vi.fn(), onSaved: vi.fn(), onError: vi.fn(),
+    }), { initialProps: { version: 0 } });
+    rerender({ version: 1 });
+    await act(async () => { await expect(result.current()).rejects.toThrow('offline'); });
+    await act(async () => { await result.current(); });
+    expect(projectApi.autosaveProject).toHaveBeenCalledTimes(2);
+  });
+
+  it('continues saving after a workflow reload resets the local change counter', async () => {
+    vi.useFakeTimers();
+    const document = createEmptyBuilding('workflow_house', '');
+    vi.mocked(projectApi.autosaveProject).mockResolvedValue(document);
+    const { result, rerender } = renderHook(({ version }) => useServerAutoSave({
+      buildingId: 'workflow_house', document, changeVersion: version,
+      onSaving: vi.fn(), onSaved: vi.fn(), onError: vi.fn(),
+    }), { initialProps: { version: 0 } });
+    rerender({ version: 1 });
+    await act(async () => { await result.current(); });
+    rerender({ version: 0 });
+    rerender({ version: 1 });
+    await act(async () => { await result.current(); });
+    expect(projectApi.autosaveProject).toHaveBeenCalledTimes(2);
+  });
+
   it('saves once after the 800 ms debounce', async () => {
     vi.useFakeTimers();
     const document = createEmptyBuilding(

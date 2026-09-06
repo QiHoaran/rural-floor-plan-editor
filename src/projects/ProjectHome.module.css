@@ -4,7 +4,7 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 56px clamp(24px, 8vw, 120px);
+  padding: 48px clamp(24px, 5vw, 72px);
   background:
     radial-gradient(circle at 85% 10%, rgba(37, 99, 235, 0.11), transparent 30%),
     linear-gradient(145deg, #f8fafc 0%, #eef2f7 100%);
@@ -15,7 +15,7 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: 32px;
-  max-width: 1080px;
+  max-width: 1600px;
   margin: 0 auto 48px;
 }
 
@@ -39,7 +39,7 @@
 }
 
 .projects {
-  max-width: 1080px;
+  max-width: 1600px;
   margin: 0 auto;
 }
 
@@ -90,7 +90,7 @@
 
 .projectGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -383,12 +383,9 @@
 }
 
 .cardInfoRow strong {
-  overflow: hidden;
   color: #1e293b;
   font-family: monospace;
   font-size: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .cardInfoRow time {
@@ -452,7 +449,7 @@
 }
 
 .importMessage {
-  max-width: 1080px;
+  max-width: 1600px;
   margin: -28px auto 28px;
   padding: 10px 14px;
   border: 1px solid #bbf7d0;
@@ -518,6 +515,13 @@
   .heroActions { flex-wrap: wrap; }
 }
 
+@media (max-width: 1440px) {
+  .projectGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 960px) {
+  .projectGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 .dialog label {
   display: grid;
   gap: 7px;
@@ -540,4 +544,56 @@
 
 .error {
   color: #dc2626;
+}
+
+/* Index views share the same cards, selection and validation states. */
+.home { padding: 24px clamp(16px, 3vw, 40px); }
+.hero { margin-bottom: 24px; align-items: center; }
+.hero h1 { font-size: clamp(24px, 3vw, 34px); }
+.hero p { margin: 6px 0; }
+.indexToolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 0; }
+.indexToolbar input, .indexToolbar select, .indexToolbar button { min-height: 34px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; padding: 6px 10px; color: #334155; }
+.indexToolbar input { flex: 1; min-width: 160px; }
+.viewSwitch { display: flex; gap: 4px; }
+.viewSwitch button[aria-pressed="true"] { background: #2563eb; color: white; border-color: #2563eb; }
+.projectHeader { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.selectionActions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.projectGrid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
+.projectCardMain { min-width: 0; padding: 10px; gap: 10px; }
+.projectCardMain:disabled { cursor: wait; }
+.projectSelector { width: 30px; }
+.cardThumbnail { width: 64px; height: 64px; }
+.cardInfo { gap: 5px; }
+.cardInfoRow { flex-wrap: wrap; gap: 5px 8px; }
+.cardInfoRow strong { overflow-wrap: anywhere; }
+.cardMetrics { white-space: normal; font-size: 11px; }
+.deleteBtn { width: 28px; }
+.cardName:empty { display: none; }
+.checkLabel { font-size: 11px; color: #64748b; }
+.detailButton { align-self: center; padding: 6px 4px; flex-shrink: 0; border: none; background: transparent; color: #475569; cursor: pointer; font-size: 11px; }
+.projectList { display: flex; flex-direction: column; gap: 5px; }
+.listHeader { display: grid; grid-template-columns: 38px 1fr 1fr 70px; padding: 10px 0; font-size: 12px; font-weight: 600; color: #475569; background: #eef2f7; position: sticky; top: 0; z-index: 15; }
+.projectList .projectCard { border-radius: 6px; box-shadow: none; min-height: 62px; }
+.projectList .cardThumbnail { width: 40px; height: 40px; }
+.projectList .cardInfo { display: grid; grid-template-columns: minmax(180px, 1.4fr) minmax(120px, 1fr) minmax(130px, 1fr); gap: 3px 12px; align-items: center; }
+.projectList .cardInfoRow:first-child { grid-column: 1; grid-row: 1; }
+.projectList .cardName { grid-column: 1; grid-row: 2; }
+.projectList .checkLabel, .projectList .errorCount, .projectList .warningCount { grid-column: 2; grid-row: 1; }
+.projectList .cardInfoRow { grid-column: 3; grid-row: 2; }
+.projectList .cardMetrics { grid-column: 3; grid-row: 1; }
+.projectCard.checkError { background: #fff1f2; border-color: #ef4444; border-left: 4px solid #dc2626; }
+.projectCard.checkError:hover { border-color: #dc2626; }
+.projectCardSelected { outline: 2px solid #2563eb; outline-offset: 1px; }
+.highlight { animation: index-highlight 2.4s ease-out; }
+@keyframes index-highlight { 0%, 60% { box-shadow: 0 0 0 4px #f59e0b; } 100% { box-shadow: none; } }
+@media (prefers-reduced-motion: reduce) { .highlight { animation: none; outline: 3px solid #f59e0b; } }
+@media (max-width: 720px) {
+  .projectGrid { grid-template-columns: 1fr; }
+  .projectList .cardInfo { grid-template-columns: minmax(0, 1fr); }
+  .projectList .cardInfoRow:not(:first-child), .projectList .cardName { display: none; }
+  .projectList .checkLabel, .projectList .errorCount, .projectList .warningCount { grid-column: 1; grid-row: 2; }
+  .listHeader { grid-template-columns: 38px 1fr 40px; }
+  .listHeader span:nth-child(3) { display: none; }
+  .hero { gap: 12px; }
+  .hero p:not(.eyebrow) { display: none; }
 }
