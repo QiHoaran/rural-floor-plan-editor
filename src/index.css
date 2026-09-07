@@ -38,16 +38,6 @@ html, body, #root {
   background: var(--color-bg);
 }
 
-/* ---- Leaflet 基础覆盖 ---- */
-.leaflet-container {
-  background: #f8fafc !important;
-  cursor: crosshair;
-}
-
-.leaflet-control-zoom a {
-  color: var(--color-text) !important;
-}
-
 /* ---- 按钮通用 ---- */
 button {
   font-family: var(--font-sans);
