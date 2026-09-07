@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "token_sequence.schema.json",
+  "type": "object",
+  "required": ["vocabulary_version", "tokens", "token_ids", "source_trajectory"],
+  "properties": {
+    "vocabulary_version": {"const": "0.1.0"},
+    "tokens": {"type": "array", "items": {"type": "string"}},
+    "token_ids": {"type": "array", "items": {"type": "integer", "minimum": 0}},
+    "source_trajectory": {"type": "string"}
+  },
+  "additionalProperties": false
+}

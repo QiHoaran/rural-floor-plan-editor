@@ -15,6 +15,8 @@ import {
 import type { BuildingDocument } from '@/editor/domain/buildingTypes.ts';
 import { NewProjectDialog } from './NewProjectDialog.tsx';
 import { BulkSurveyImportDialog } from './BulkSurveyImportDialog.tsx';
+import { ConversionDialog } from './ConversionDialog.tsx';
+import { hasSavedConversion } from './conversionStorage.ts';
 import { uploadReferenceImageFile } from './imageFile.ts';
 import { useProjectIndex, readIndexState } from './useProjectIndex.ts';
 import styles from './ProjectHome.module.css';
@@ -41,6 +43,7 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
   );
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [conversionProjects, setConversionProjects] = useState<ProjectSummary[] | null>(() => hasSavedConversion() ? [] : null);
   const [importMessage, setImportMessage] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(readIndexState().selected ?? []));
   const [legacyBatchBusy, setBatchBusy] = useState(false);
@@ -285,6 +288,8 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
               <span>已选 {selectedIds.size} 栋</span>
               <button disabled={batchBusy || !selectedIds.size} onClick={() => void index.batch(false)}>批量检查</button>
               <button disabled={batchBusy || !selectedIds.size} onClick={() => void index.batch(true)}>批量完成</button>
+              <button disabled={batchBusy || !selectedIds.size} onClick={() => setConversionProjects(projects.filter(project => selectedIds.has(project.building_id)))}>批量转换</button>
+              {hasSavedConversion() && <button onClick={() => setConversionProjects(projects.filter(project => selectedIds.has(project.building_id)))}>转换进度</button>}
               <button
                 type="button"
                 onClick={() => setSelectedIds(new Set([...selectedIds, ...index.filtered.map((item) => item.building_id)]))}
@@ -403,6 +408,7 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
                 </div>
               </button>
               <button className={styles.detailButton} aria-label={`详情 ${project.building_id}`} onClick={() => index.setDetails(project.building_id)}>详情</button>
+              <button className={styles.conversionButton} aria-label={`数据转换 ${project.building_id}`} title={project.status === 'complete' ? '数据转换' : '仅已完成项目可以转换'} disabled={batchBusy || project.status !== 'complete'} onClick={() => setConversionProjects([project])}>数据转换</button>
               <button
                 disabled={batchBusy}
                 className={styles.deleteBtn}
@@ -455,6 +461,7 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
       )}
 
       </details>
+      {conversionProjects !== null && <ConversionDialog projects={conversionProjects.map(project => projects.find(current => current.building_id === project.building_id) ?? project)} onClose={() => setConversionProjects(null)} />}
       {index.details && (() => {
         const project = projects.find(p => p.building_id === index.details);
         if (!project) return null;

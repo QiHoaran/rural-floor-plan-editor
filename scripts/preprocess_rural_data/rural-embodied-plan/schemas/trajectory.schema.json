@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trajectory.schema.json",
+  "type": "object",
+  "required": [
+    "schema_version", "building_id", "primary_exterior_door_id", "room_activations",
+    "events", "visited_room_ids", "processed_interior_door_ids", "loop_closure_count", "warnings"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "building_id": {"type": "string"},
+    "primary_exterior_door_id": {"type": "string"},
+    "room_activations": {"type": "array", "items": {"type": "object"}},
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step", "phase", "state_before", "action", "observation", "state_after"],
+        "properties": {
+          "step": {"type": "integer", "minimum": 0},
+          "phase": {"type": "string"},
+          "state_before": {"type": "object"},
+          "action": {"type": ["object", "null"]},
+          "observation": {"type": ["object", "null"]},
+          "state_after": {"type": "object"}
+        }
+      }
+    },
+    "visited_room_ids": {"type": "array", "items": {"type": "string"}},
+    "processed_interior_door_ids": {"type": "array", "items": {"type": "string"}},
+    "loop_closure_count": {"type": "integer", "minimum": 0},
+    "warnings": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": false
+}

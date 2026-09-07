@@ -8,6 +8,56 @@
 
 - **Node.js** ≥ 22
 - **npm** ≥ 10
+- **数据转换功能：Python ≥ 3.13、uv**（独立环境，见下方安装步骤）
+
+## 数据转换（Graph / Image / CAD / Embodied v2）
+
+首次使用前在项目根目录执行：
+
+```powershell
+cd scripts/preprocess_rural_data
+uv sync --all-packages --all-groups --locked
+.venv/Scripts/python.exe adapter.py --check
+```
+
+Linux/macOS 使用 `.venv/bin/python`。后端默认使用该环境，亦可通过
+`RURAL_CONVERSION_PYTHON` 指定解释器绝对路径。服务不会在转换请求中安装依赖；
+环境不完整时，弹窗会显示安装说明。原有编辑和 ZIP 导出不依赖 Python。
+
+项目首页卡片和列表均提供“数据转换”，勾选多个项目后使用“批量转换”。
+仅 `complete` 项目可转换，混合选择中的未完成项目会跳过。默认选择全部四种格式，
+输出目录填写**服务所在电脑的绝对路径**；浏览器记住上次成功转换使用的路径。
+默认跳过已有格式目录，勾选覆盖后仅替换成功生成的所选格式，失败时保留原结果。
+
+```text
+<指定目录>/<building_id>/Graph/     graph.json、graph.schema.json、vocabulary.json
+<指定目录>/<building_id>/Image/     semantic.png、instance.png、stats.json、Schema及词表
+<指定目录>/<building_id>/CAD/       building.dxf、primitives.json、Schema及词表
+<指定目录>/<building_id>/Embodied/  Embodied v2 的 10 个标准文件
+```
+
+每个成功格式目录附带 `conversion.json`，包含来源 revision、SHA-256、转换版本、
+配置及制品哈希。Image 为 256×256 语义掩码和 16 位实例掩码，并非编辑器截图；
+CAD 以毫米为单位。Graph/Image/CAD 复用参考清洗及几何逻辑，修复只作用于副本。
+Embodied v2 直接处理原始正式 JSON，以默认机器人配置验证独立解码与双向精确还原，
+不支持的源数据输出隔离原因，不生成部分成功数据，也不回退到旧版 Embodied。
+
+临时文件、隔离报告及任务进度保存在 `<指定目录>/.conversions/<任务ID>/`，
+不写入 `data`；数据目录的符号链接或 Windows junction 别名同样禁止作为输出。
+转换期间重新打开或修改项目会阻止该建筑尚未发布的结果。任务在服务后台逐建筑执行，
+关闭弹窗不会取消。刷新后重新打开弹窗可恢复进度；服务重启后恢复报告将未完成任务
+标记为中断，重新提交即可继续，首版不自动续跑。
+
+接口：`GET /api/conversions/formats` 获取格式与环境可用性；
+`POST /api/conversions` 接收 `{projects:[{buildingId,revision}],formats,outputRoot,overwrite}`，
+返回 HTTP 202 和任务对象；`GET /api/conversions/:id` 查询逐格式结果；
+`POST /api/conversions/:id/open` 打开任务输出目录；
+`POST /api/conversions/recover` 接收 `{id,outputRoot}` 从原目录恢复任务报告。
+
+新增格式时，在 Python `adapter.py` 的转换器注册表增加执行函数、模块可用性检查、
+版本和目录描述，并在 `server/conversions/types.ts` 增加对应描述。调度器和弹窗
+均按注册列表执行，无需新增分支。执行函数生成独立格式目录并完成校验后，
+适配器写入统一元数据、通过 JSON Lines 返回格式结果。
 
 ## 快速开始
 
@@ -60,13 +110,25 @@ rural-floor-plan-editor/
 ├── server/                      # Express 后端
 │   ├── index.ts                 # 入口
 │   ├── app.ts                   # Express 应用工厂
-│   ├── config.ts                # 配置（端口、数据目录）
-│   ├── projectService.ts        # 项目 CRUD、导出、软删除
+│   ├── config.ts                # 配置（端口、数据目录、转换 Python）
+│   ├── projectService.ts        # 项目 CRUD、导出、软删除、转换快照锁
+│   ├── conversions/             # 数据转换调度
+│   │   ├── service.ts           # 批量任务编排与恢复
+│   │   ├── runner.ts            # Python 适配器进程管理
+│   │   ├── types.ts             # 转换格式注册描述
+│   │   └── paths.ts             # 输出路径校验与隔离目录
 │   ├── routes/
-│   │   └── projects.ts          # REST API 路由
+│   │   ├── projects.ts          # 项目 REST API 路由
+│   │   ├── settings.ts          # 房间模板设置路由
+│   │   └── conversions.ts       # 数据转换 REST API 路由
 │   ├── atomicWrite.ts           # 原子写入工具
 │   ├── pathSafety.ts            # 路径校验
 │   └── errors.ts                # 业务错误类
+├── scripts/
+│   └── preprocess_rural_data/   # 数据转换 Python 运行环境（uv workspace）
+│       ├── adapter.py           # 单建筑转换适配器（JSON Lines 结果）
+│       ├── rural_data_prep/     # Graph/Image/CAD 清洗与几何逻辑
+│       └── rural-embodied-plan/ # Embodied v2 数据包
 ├── src/
 │   ├── editor/
 │   │   ├── canvas/              # SVG 画布
@@ -124,9 +186,12 @@ rural-floor-plan-editor/
 │   │   └── hooks/               # React Hooks
 │   ├── projects/                # 项目首页
 │   │   ├── ProjectHome.tsx      # 项目列表 + 回收站（v0.2 丰富卡片）
-│   │   └── NewProjectDialog.tsx # 新建对话框
+│   │   ├── NewProjectDialog.tsx # 新建对话框
+│   │   ├── ConversionDialog.tsx # 数据转换弹窗（格式/进度/恢复）
+│   │   └── conversionStorage.ts # 转换任务本地持久化
 │   └── api/                     # 前端 API 客户端
-│       └── projectApi.ts
+│       ├── projectApi.ts
+│       └── conversionApi.ts
 ├── tests/
 │   ├── unit/                    # 单元测试
 │   ├── topology/                # 拓扑测试
@@ -232,6 +297,8 @@ draft → pending_review → reviewed → complete
 | 导出 | 空间图导出（节点+边+关系通道） | ✓ |
 | 导出 | GeoJSON 导出（local_cartesian_mm） | ✓ |
 | 导出 | ZIP 建筑包导出 | ✓ |
+| 数据转换 | Graph/Image/CAD/Embodied v2 批量导出（仅 complete 项目） | ✓ |
+| 数据转换 | Python uv 环境自检、后台任务、进度恢复与覆盖重转 | ✓ |
 | 参考方向 | 统一采用上北、下南、左西、右东 | ✓ |
 | 参考标定 | 比例标定数据结构（可选，不参与质量检查） | ✓ |
 
@@ -260,6 +327,11 @@ draft → pending_review → reviewed → complete
 | `GET` | `/api/projects/:id/files/*` | 获取项目文件 |
 | `GET/POST` | `/api/settings/room-functions` | 列出或创建全项目房间模板 |
 | `PUT/DELETE` | `/api/settings/room-functions/:code` | 更新或删除全项目房间模板 |
+| `GET` | `/api/conversions/formats` | 列出转换格式与环境可用性 |
+| `POST` | `/api/conversions` | 提交批量转换任务（返回 202） |
+| `GET` | `/api/conversions/:id` | 查询任务逐格式结果 |
+| `POST` | `/api/conversions/:id/open` | 打开任务输出目录 |
+| `POST` | `/api/conversions/recover` | 从原输出目录恢复任务报告 |
 
 ## 导出格式
 

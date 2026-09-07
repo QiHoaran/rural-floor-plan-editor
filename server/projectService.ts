@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { ZipArchive } from 'archiver';
 import sharp from 'sharp';
 import { createEmptyBuilding } from '../src/editor/domain/buildingDocument.js';
@@ -133,6 +134,36 @@ const REVISIONS_DIR = 'revisions';
 const LIST_CONCURRENCY = 32;
 
 export class ProjectService {
+  /** The callback runs under the same lock as workflow commands and publication. */
+  async withConversionSnapshot<T>(buildingId: string, revision: number,
+    operation: (snapshot: { bytes: Buffer; sha256: string; revision: number }) => Promise<T>,
+    expectedHash?: string): Promise<T> {
+    const safeId = validateBuildingId(buildingId);
+    return this.withProjectLock(safeId, async () => {
+      const { document: current } = await this.readDocument(safeId);
+      if (current.workflow.status !== 'complete' || current.metadata.status !== 'complete') {
+        throw new ServiceError('仅已完成项目可以转换', 409, 'PROJECT_NOT_COMPLETE');
+      }
+      if (current.metadata.revision !== revision) throw new ServiceError('建筑版本已变化，请刷新后重试', 409, 'REVISION_CONFLICT');
+      let bytes: Buffer;
+      try { bytes = await fs.readFile(path.join(resolveBuildingDir(this.dataRoot, safeId), 'building.json')); }
+      catch { throw new ServiceError('正式 building.json 不存在或不可读取', 422, 'FORMAL_DOCUMENT_MISSING'); }
+      let formal: BuildingDocument;
+      try { formal = JSON.parse(bytes.toString('utf8')); }
+      catch { throw new ServiceError('正式 building.json 无效', 422, 'INVALID_FORMAL_DOCUMENT'); }
+      assertValidForOperation(formal, 'research_export');
+      if (formal.building_id !== safeId || formal.workflow.status !== 'complete' || formal.metadata.status !== 'complete') {
+        throw new ServiceError('正式文件不是该项目的已完成版本', 409, 'INVALID_FORMAL_DOCUMENT');
+      }
+      if (formal.metadata.revision !== revision || !sameDocumentContent(formal, current)) {
+        throw new ServiceError('正式文件与当前版本不一致', 409, 'REVISION_CONFLICT');
+      }
+      const sha256 = createHash('sha256').update(bytes).digest('hex');
+      if (expectedHash && expectedHash !== sha256) throw new ServiceError('转换期间源文件发生变化', 409, 'SOURCE_CHANGED');
+      return operation({ bytes, sha256, revision });
+    });
+  }
+
   private readonly summaryCache = new Map<string, { signature: string; summary: ProjectSummary }>();
 
   private async documentSignature(buildingId: string): Promise<string> {

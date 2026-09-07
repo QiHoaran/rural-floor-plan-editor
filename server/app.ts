@@ -10,6 +10,8 @@ import { ProjectService } from './projectService.js';
 import { createProjectRouter } from './routes/projects.js';
 import { createSettingsRouter } from './routes/settings.js';
 import { RoomFunctionTemplateService } from './roomFunctionTemplateService.js';
+import { ConversionService } from './conversions/service.js';
+import { createConversionRouter } from './routes/conversions.js';
 
 export async function createApp(config: ServerConfig): Promise<Express> {
   const app = express();
@@ -20,6 +22,7 @@ export async function createApp(config: ServerConfig): Promise<Express> {
   app.use(express.json({ limit: '15mb' }));
   app.use('/api/projects', createProjectRouter(projectService));
   app.use('/api/settings', createSettingsRouter(templateService));
+  app.use('/api/conversions', createConversionRouter(new ConversionService(config, projectService)));
 
   if (config.development) {
     const vite = await createViteServer({

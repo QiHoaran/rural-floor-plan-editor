@@ -571,6 +571,15 @@
 .cardName:empty { display: none; }
 .checkLabel { font-size: 11px; color: #64748b; }
 .detailButton { align-self: center; padding: 6px 4px; flex-shrink: 0; border: none; background: transparent; color: #475569; cursor: pointer; font-size: 11px; }
+.conversionButton { align-self: center; padding: 6px 4px; width: 42px; flex-shrink: 0; border: none; background: transparent; color: #1d4ed8; cursor: pointer; font-size: 11px; }
+.conversionButton:disabled { color: #94a3b8; cursor: not-allowed; }
+.conversionFormats { display: flex; flex-wrap: wrap; gap: 12px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px; }
+.dialog .conversionFormats label, .dialog .conversionCheckbox { display: flex; align-items: center; gap: 6px; }
+.dialog .conversionFormats input, .dialog .conversionCheckbox input { min-height: auto; }
+.conversionPath { overflow-wrap: anywhere; }
+.conversionResults { overflow: auto; max-height: 42vh; }
+.conversionResults table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.conversionResults th, .conversionResults td { text-align: left; padding: 9px 8px; border-bottom: 1px solid #e2e8f0; overflow-wrap: anywhere; }
 .projectList { display: flex; flex-direction: column; gap: 5px; }
 .listHeader { display: grid; grid-template-columns: 38px 1fr 1fr 70px; padding: 10px 0; font-size: 12px; font-weight: 600; color: #475569; background: #eef2f7; position: sticky; top: 0; z-index: 15; }
 .projectList .projectCard { border-radius: 6px; box-shadow: none; min-height: 62px; }

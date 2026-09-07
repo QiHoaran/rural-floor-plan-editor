@@ -1,0 +1,1 @@
+"""Navigation-scene construction."""
