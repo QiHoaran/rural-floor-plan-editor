@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { ZipArchive } from 'archiver';
 import sharp from 'sharp';
 import { createEmptyBuilding } from '../src/editor/domain/buildingDocument.js';
+import { orthogonalitySummary } from '../src/editor/domain/orthogonalValidation.js';
 import type { BuildingDocument } from '../src/editor/domain/buildingTypes.js';
 import { prepareExportDocument } from '../src/editor/domain/exportUtils.js';
 import { computeBuildingStatistics } from '../src/editor/domain/buildingStatistics.js';
@@ -88,6 +89,8 @@ export interface ProjectCheckResult {
   summary: ProjectSummary;
 }
 export interface ProjectSummary {
+  non_axis_aligned_wall_count: number;
+  non_axis_aligned_face_edge_count: number;
   check?: ProjectCheck;
   building_id: string;
   name: string;
@@ -1537,6 +1540,7 @@ function summarizeDocument(document: BuildingDocument): ProjectSummary {
   const hasReferenceImage = Boolean(document.reference_image?.path);
 
   return {
+    ...orthogonalitySummary(document),
     building_id: document.building_id,
     name: document.metadata?.name ?? document.building_id,
     updated_at: document.metadata?.updated_at ?? '',

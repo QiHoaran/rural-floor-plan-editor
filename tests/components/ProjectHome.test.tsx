@@ -27,6 +27,27 @@ vi.mock('../../src/projects/imageFile.ts', () => ({
 }));
 
 describe('ProjectHome', () => {
+  it('combines orthogonality with workflow filters and restores the selection', async () => {
+    sessionStorage.clear();
+    vi.mocked(projectApi.listProjects).mockResolvedValue([
+      { building_id: 'diagonal', status: 'draft', non_axis_aligned_wall_count: 1, non_axis_aligned_face_edge_count: 0 },
+      { building_id: 'face_only', status: 'complete', non_axis_aligned_wall_count: 0, non_axis_aligned_face_edge_count: 1 },
+      { building_id: 'aligned', status: 'draft', non_axis_aligned_wall_count: 0, non_axis_aligned_face_edge_count: 0 },
+    ] as projectApi.ProjectSummary[]);
+    const view = render(<ProjectHome onOpen={vi.fn()} />);
+    await screen.findByLabelText('选择 diagonal');
+    fireEvent.change(screen.getByLabelText('正交检查筛选'), { target: { value: 'nonorthogonal' } });
+    expect(screen.queryByLabelText('选择 aligned')).toBeNull();
+    expect(screen.getByLabelText('选择 face_only')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('工作流筛选'), { target: { value: 'draft' } });
+    expect(screen.queryByLabelText('选择 face_only')).toBeNull();
+    view.unmount();
+    render(<ProjectHome onOpen={vi.fn()} />);
+    expect((screen.getByLabelText('正交检查筛选') as HTMLSelectElement).value).toBe('nonorthogonal');
+    fireEvent.change(screen.getByLabelText('正交检查筛选'), { target: { value: 'orthogonal' } });
+    expect(screen.queryByLabelText('选择 diagonal')).toBeNull();
+    expect(screen.getByLabelText('选择 aligned')).toBeTruthy();
+  });
   beforeEach(() => {
     sessionStorage.clear();
     localStorage.clear();

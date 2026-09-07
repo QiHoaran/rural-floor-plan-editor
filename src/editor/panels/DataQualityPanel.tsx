@@ -3,11 +3,13 @@
 // ============================================================
 
 import { useMemo, useState } from 'react';
+import { Fragment } from 'react';
 import { useEditorStore } from '@/editor/store/editorStore.ts';
 import type {
   ValidationIssue,
   ValidationCategory,
   ValidationSeverity,
+  BuildingDocument,
 } from '@/editor/domain/buildingTypes.ts';
 import {
   getValidationMessageZh,
@@ -17,6 +19,9 @@ import {
   getIssuesForEntity,
 } from '@/editor/domain/buildingValidation.ts';
 import styles from './DataQualityPanel.module.css';
+import { checkOrthogonality, isOrthogonalIssue } from '../domain/orthogonalValidation.ts';
+import { OrthogonalRepairPanel } from './OrthogonalRepairPanel.tsx';
+import { useOrthogonalPreviewStore } from '../store/orthogonalPreviewStore.ts';
 
 const CATEGORY_LABELS: Record<ValidationCategory | 'all', string> = {
   all: '全部',
@@ -53,16 +58,17 @@ export function DataQualityPanel() {
   const setSelection = useEditorStore((state) => state.setSelection);
   const [categoryFilter, setCategoryFilter] = useState<ValidationCategory | 'all'>('all');
   const [severityFilter, setSeverityFilter] = useState<ValidationSeverity | 'all'>('all');
+  const [repair, setRepair] = useState<{ source: BuildingDocument; wallId: string } | null>(null);
 
   const allIssues = useMemo(() => {
     if (!document) return [];
     // 兼容已保存的旧检查结果：比例标定不再属于质量问题。
     const structured = (document.structured_validation ?? []).filter(
-      (issue) => issue.code !== 'REFERENCE_SCALE_MISSING',
+      (issue) => issue.code !== 'REFERENCE_SCALE_MISSING' && !isOrthogonalIssue(issue.code),
     );
     // Also convert old-style issues
     const oldIssues: ValidationIssue[] = (document.validation?.issues ?? [])
-      .filter((issue) => issue.code !== 'REFERENCE_SCALE_MISSING')
+      .filter((issue) => issue.code !== 'REFERENCE_SCALE_MISSING' && !isOrthogonalIssue(issue.code))
       .map((issue) => ({
         id: issue.id,
         code: issue.code,
@@ -74,7 +80,7 @@ export function DataQualityPanel() {
         created_at: new Date().toISOString(),
       }),
     );
-    return [...structured, ...oldIssues];
+    return [...structured, ...oldIssues, ...checkOrthogonality(document)];
   }, [document]);
 
   const filteredIssues = useMemo(() => {
@@ -109,9 +115,21 @@ export function DataQualityPanel() {
       ? 'outside_region'
       : issue.entity_type;
     setSelection({ type: entityType, id: issue.entity_id });
+    if (document && isOrthogonalIssue(issue.code)) {
+      const wall = document.walls[issue.entity_id];
+      const ids = entityType === 'wall' && wall ? [wall.start_vertex_id, wall.end_vertex_id] : document.faces[issue.entity_id]?.boundary_vertex_ids ?? [];
+      useOrthogonalPreviewStore.getState().focus({ source: document, points: ids.map(id => document.vertices[id]).filter(Boolean) });
+    }
   };
 
   if (!document) return null;
+
+  const issueItem = (issue: ValidationIssue) => <Fragment key={issue.id}>
+    <IssueItem issue={issue} onClick={() => handleClickIssue(issue)} active={selection?.id === issue.entity_id && selection?.type === issue.entity_type} />
+    {issue.code === 'WALL_NOT_AXIS_ALIGNED' && issue.entity_id && <button className={styles.repairButton}
+      aria-label={`正交修复 ${issue.entity_id}`} disabled={document.workflow.status === 'complete'}
+      onClick={() => { handleClickIssue(issue); setRepair({ source: document, wallId: issue.entity_id! }); }}>正交修复</button>}
+  </Fragment>;
 
   return (
     <aside className={styles.panel}>
@@ -165,16 +183,11 @@ export function DataQualityPanel() {
       </div>
 
       {/* 当前实体问题 */}
+      {repair && <OrthogonalRepairPanel key={`${repair.wallId}:${repair.source.metadata.revision}`} source={repair.source} wallId={repair.wallId} onClose={() => setRepair(null)} />}
       {selection && entityIssues.length > 0 && (
         <div className={styles.section}>
           <div className={styles.sectionTitle}>当前实体问题</div>
-          {entityIssues.map((issue) => (
-            <IssueItem
-              key={issue.id}
-              issue={issue}
-              onClick={() => handleClickIssue(issue)}
-            />
-          ))}
+          {entityIssues.map(issueItem)}
         </div>
       )}
 
@@ -187,17 +200,7 @@ export function DataQualityPanel() {
               : '没有匹配的问题'}
           </div>
         ) : (
-          filteredIssues.map((issue) => (
-            <IssueItem
-              key={issue.id}
-              issue={issue}
-              onClick={() => handleClickIssue(issue)}
-              active={
-                selection?.id === issue.entity_id &&
-                selection?.type === issue.entity_type
-              }
-            />
-          ))
+          filteredIssues.map(issueItem)
         )}
       </div>
 

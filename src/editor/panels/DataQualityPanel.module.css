@@ -159,3 +159,18 @@
   border-top: 1px solid #e2e8f0;
   text-align: center;
 }
+
+.repairPanel {
+  padding: 12px;
+  border: 1px solid #93c5fd;
+  background: #eff6ff;
+  font-size: 12px;
+  max-height: 45vh;
+  overflow: auto;
+}
+.repairPanel p { margin: 8px 0; line-height: 1.5; }
+.repairPanel label { display: flex; justify-content: space-between; margin: 8px 0; gap: 8px; }
+.repairActions { display: flex; gap: 8px; }
+.repairPanel button, .repairButton { padding: 5px 8px; cursor: pointer; }
+.repairPanel button:disabled, .repairButton:disabled { cursor: not-allowed; opacity: .5; }
+.repairButton { margin: 0 12px 8px; font-size: 12px; }

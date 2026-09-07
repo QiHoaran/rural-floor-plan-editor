@@ -22,6 +22,8 @@ export function checkProject(buildingId: string, clientRevision: number, complet
   });
 }
 export interface ProjectSummary {
+  non_axis_aligned_wall_count?: number;
+  non_axis_aligned_face_edge_count?: number;
   check?: ProjectCheck;
   building_id: string;
   name: string;

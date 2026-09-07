@@ -272,6 +272,9 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
           <select aria-label="排序" value={index.sort} onChange={e => index.setSort(e.target.value)}>
             <option value="id">编号顺序</option><option value="updated">最近更新</option><option value="issues">问题优先</option>
           </select>
+          <select aria-label="正交检查筛选" value={index.orthogonality} onChange={e => { index.setOrthogonality(e.target.value); index.setPinned(null); }}>
+            <option value="all">正交检查：全部</option><option value="nonorthogonal">有非正交</option><option value="orthogonal">无非正交</option>
+          </select>
           <span>{index.filtered.length} 栋</span>
           <button disabled={batchBusy} onClick={refresh}>刷新列表</button>
         </div>

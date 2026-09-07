@@ -7,6 +7,7 @@ interface IndexState {
   query?: string;
   status?: string;
   check?: string;
+  orthogonality?: string;
   sort?: string;
   selected?: string[];
   anchor?: { id: string; offset: number } | null;
@@ -36,6 +37,7 @@ export function useProjectIndex(projects: ProjectSummary[], setProjects: React.D
   const [query, setQuery] = useState(initial.query ?? '');
   const [status, setStatus] = useState(initial.status ?? 'all');
   const [check, setCheck] = useState(initial.check ?? 'all');
+  const [orthogonality, setOrthogonality] = useState(initial.orthogonality ?? 'all');
   const [sort, setSort] = useState(initial.sort ?? 'id');
   const [pinned, setPinned] = useState<string | null>(initial.anchor?.id ?? null);
   const [highlight, setHighlight] = useState<string | null>(initial.anchor?.id ?? null);
@@ -48,9 +50,11 @@ export function useProjectIndex(projects: ProjectSummary[], setProjects: React.D
   const restore = useRef(true);
   const running = useRef(false);
   useEffect(() => { writeIndexState({ projects }); }, [projects]);
-  useEffect(() => { writeIndexState({ query, status, check, sort, selected: [...selectedIds] }); }, [query, status, check, sort, selectedIds]);
+  useEffect(() => { writeIndexState({ query, status, check, orthogonality, sort, selected: [...selectedIds] }); }, [query, status, check, orthogonality, sort, selectedIds]);
   useEffect(() => { const timer = window.setTimeout(() => setHighlight(null), 2400); return () => clearTimeout(timer); }, [highlight]);
-  const matches = (p: ProjectSummary) => (`${p.building_id} ${p.name ?? ''}`.toLowerCase().includes(query.toLowerCase().trim())) && (status === 'all' || p.status === status) && (check === 'all' || (p.check?.status ?? 'unchecked') === check);
+  const matches = (p: ProjectSummary) => (`${p.building_id} ${p.name ?? ''}`.toLowerCase().includes(query.toLowerCase().trim())) && (status === 'all' || p.status === status) && (check === 'all' || (p.check?.status ?? 'unchecked') === check)
+    && (orthogonality === 'all' || (p.non_axis_aligned_wall_count !== undefined && p.non_axis_aligned_face_edge_count !== undefined
+      && ((p.non_axis_aligned_wall_count + p.non_axis_aligned_face_edge_count > 0) === (orthogonality === 'nonorthogonal'))));
   const filtered = projects.filter(matches);
   const visible = projects.filter(p => matches(p) || p.building_id === pinned).sort((a, b) => {
     if (sort === 'updated') { const diff = (Date.parse(b.updated_at) || 0) - (Date.parse(a.updated_at) || 0); if (diff) return diff; }
@@ -105,7 +109,7 @@ export function useProjectIndex(projects: ProjectSummary[], setProjects: React.D
       setMessage(`处理结束：成功 ${done - Object.keys(errors).length - skipped} 栋，失败 ${Object.keys(errors).length} 栋，跳过 ${skipped} 栋。`);
     } finally { setBusy(false); running.current = false; }
   };
-  return { view, changeView, query, setQuery, status, setStatus, check, setCheck, sort, setSort, visible, filtered, pinned, setPinned,
+  return { view, changeView, query, setQuery, status, setStatus, check, setCheck, orthogonality, setOrthogonality, sort, setSort, visible, filtered, pinned, setPinned,
     highlight, details, setDetails, busy, batch, progress, failures, homeRef, remember, retry: () => setSelectedIds(new Set(Object.keys(failures))),
     retained: pinned && visible.some(p => p.building_id === pinned && !matches(p)) };
 }

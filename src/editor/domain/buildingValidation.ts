@@ -15,6 +15,7 @@ import type {
 import { intersectSegments } from '../topology/segmentIntersection.ts';
 import { validateConnectivity } from '../connectivity/connectivityValidation.ts';
 import { deriveRelations } from '../connectivity/deriveRelations.ts';
+import { checkOrthogonality, ORTHOGONAL_NOTICE } from './orthogonalValidation.ts';
 
 // ---- 问题定义 ----
 interface IssueDefinition {
@@ -26,6 +27,8 @@ interface IssueDefinition {
 }
 
 const ISSUE_DEFINITIONS: Record<string, IssueDefinition> = {
+  WALL_NOT_AXIS_ALIGNED: { code: 'WALL_NOT_AXIS_ALIGNED', severity: 'warning', category: 'geometry', message_key: 'WALL_NOT_AXIS_ALIGNED', fix_suggestion_key: 'fix.wall_axis_alignment' },
+  FACE_EDGE_NOT_AXIS_ALIGNED: { code: 'FACE_EDGE_NOT_AXIS_ALIGNED', severity: 'warning', category: 'geometry', message_key: 'FACE_EDGE_NOT_AXIS_ALIGNED', fix_suggestion_key: 'fix.face_axis_alignment' },
   SCHEMA_INVALID: {
     code: 'SCHEMA_INVALID',
     severity: 'error',
@@ -187,6 +190,10 @@ const ISSUE_DEFINITIONS: Record<string, IssueDefinition> = {
 
 // ---- 中文消息映射 ----
 const ZH_MESSAGES: Record<string, string> = {
+  WALL_NOT_AXIS_ALIGNED: '墙 {entity_id} 非正交：横向差 {dx_mm} mm，纵向差 {dy_mm} mm',
+  FACE_EDGE_NOT_AXIS_ALIGNED: '房间 {entity_id} 存在未被墙警告覆盖的斜边：横向差 {dx_mm} mm，纵向差 {dy_mm} mm',
+  'fix.wall_axis_alignment': `${ORTHOGONAL_NOTICE}；请预览正交修复，将墙对齐水平或垂直方向`,
+  'fix.face_axis_alignment': `${ORTHOGONAL_NOTICE}；请手动检查边界墙体并重新检索房间`,
   'validation.internal_error': '校验器内部错误',
   'validation.relations_out_of_date': '空间关系与当前拓扑不一致',
   'validation.relation_derivation_error': '无法从当前拓扑推导空间关系',
@@ -422,7 +429,7 @@ function validateGeometry(document: BuildingDocument): ValidationIssue[] {
 }
 
 function validateTopology(document: BuildingDocument): ValidationIssue[] {
-  const issues: ValidationIssue[] = [];
+  const issues: ValidationIssue[] = checkOrthogonality(document);
 
   const bayCount = document.survey?.bay_count;
   const faceCount = Object.keys(document.faces).length;

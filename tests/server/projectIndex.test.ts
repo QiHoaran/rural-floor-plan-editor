@@ -18,6 +18,23 @@ beforeEach(async () => {
 });
 afterEach(async () => { vi.restoreAllMocks(); await fs.rm(root, { recursive: true, force: true }); });
 
+it('derives orthogonality from old saved geometry and refreshes it after repair without blocking completion', async () => {
+  const doc = createEmptyBuilding('house_1', '');
+  doc.metadata.village_code = 'village_1'; doc.site.location_name = 'Village';
+  doc.vertices = { a: { x_mm: 0, y_mm: 0 }, b: { x_mm: 4000, y_mm: 1 } };
+  doc.walls.ab = { start_vertex_id: 'a', end_vertex_id: 'b', wall_type: 'exterior', thickness_mm: 240, height_mm: 2800, material_type: 'brick' };
+  doc.floors[0].wall_ids = ['ab'];
+  await fs.writeFile(path.join(root, 'house_1', 'building.json'), JSON.stringify(doc));
+  expect((await service.list())[0]).toMatchObject({ non_axis_aligned_wall_count: 1, non_axis_aligned_face_edge_count: 0 });
+  const completed = await service.checkProject('house_1', 0, true);
+  expect(completed.outcome).toBe('completed');
+  expect(completed.summary.check.issues).toContainEqual(expect.objectContaining({ code: 'WALL_NOT_AXIS_ALIGNED', severity: 'warning' }));
+  const repaired = await service.reopen('house_1');
+  repaired.vertices.b.y_mm = 0;
+  await service.autosave('house_1', repaired, repaired.metadata.revision);
+  expect((await service.list())[0]).toMatchObject({ non_axis_aligned_wall_count: 0, non_axis_aligned_face_edge_count: 0 });
+});
+
 it('caches unchanged summaries but notices external changes', async () => {
   await service.list();
   const read = vi.spyOn(fs, 'readFile');

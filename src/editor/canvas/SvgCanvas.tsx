@@ -33,6 +33,8 @@ import {
 } from './Viewport.ts';
 import { useEditorStore } from '@/editor/store/editorStore.ts';
 import { WallLayer } from './layers/WallLayer.tsx';
+import { OrthogonalPreviewLayer } from './layers/OrthogonalPreviewLayer.tsx';
+import { useOrthogonalPreviewStore } from '../store/orthogonalPreviewStore.ts';
 import { OverlayLayer } from './layers/OverlayLayer.tsx';
 import {
   ReferenceImageLayer,
@@ -121,6 +123,10 @@ export function SvgCanvas({
   const directionMode = useEditorStore((state) => state.directionMode);
   const viewport = useEditorStore((state) => state.viewport);
   const setViewport = useEditorStore((state) => state.setViewport);
+  const focusRequest = useOrthogonalPreviewStore(s => s.focusRequest);
+  useEffect(() => {
+    if (focusRequest?.source === document && focusRequest.points.length) setViewport(fitWorldPoints(focusRequest.points, size, 0.6));
+  }, [focusRequest, document, size, setViewport]);
   const setSelection = useEditorStore((state) => state.setSelection);
   const transact = useEditorStore((state) => state.transact);
   const undo = useEditorStore((state) => state.undo);
@@ -989,6 +995,7 @@ export function SvgCanvas({
             }}
             onStartDrag={handleStartVertexDrag}
           />
+          <OrthogonalPreviewLayer />
           <OverlayLayer
             command={command}
             pixelsPerMm={viewport.pixelsPerMm}
