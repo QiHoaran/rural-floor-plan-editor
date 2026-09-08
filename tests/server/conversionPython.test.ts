@@ -9,7 +9,7 @@ import { ProjectService } from '../../server/projectService.ts';
 import { ConversionService } from '../../server/conversions/service.ts';
 import { createEmptyBuilding } from '../../src/editor/domain/buildingDocument.ts';
 
-const python=path.resolve('scripts/preprocess_rural_data/.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python');
+const python=path.resolve('scripts/conversion/.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python');
 it.skipIf(!existsSync(python))('integrates Node snapshot, real Python four-format worker, verified publication and deterministic overwrite',async()=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'rural-python-integration-'));
   try {
@@ -26,7 +26,7 @@ it.skipIf(!existsSync(python))('integrates Node snapshot, real Python four-forma
     const dataRoot=path.join(root,'data');const source=path.join(dataRoot,document.building_id,'building.json');
     await fs.mkdir(path.dirname(source),{recursive:true});const bytes=JSON.stringify(document);await fs.writeFile(source,bytes);
     const service=new ConversionService({projectRoot:process.cwd(),dataRoot,port:0,development:false},new ProjectService(dataRoot));
-    const input={projects:[{buildingId:document.building_id,revision:0}],formats:['graph','image','cad','embodied_v2'],outputRoot:path.join(root,'中文 output'),overwrite:false};
+    const input={projects:[{buildingId:document.building_id,revision:0}],formats:['graph','image','cad','embodied'],outputRoot:path.join(root,'中文 output'),overwrite:false};
     const job=await service.submit(input);await service.idle();
     expect(service.get(job.id).items).toEqual(input.formats.map(format=>({buildingId:document.building_id,format,status:'succeeded'})));
     const hashes=new Map<string,string>();

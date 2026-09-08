@@ -1,0 +1,16 @@
+[project]
+name = "conversion-graph"
+version = "1.0.0"
+description = "Deterministic Graph training-data conversion for rural floor plans"
+requires-python = ">=3.13"
+dependencies = ["conversion-shared"]
+
+[project.scripts]
+conversion-graph = "conversion_graph.cli:main"
+
+[tool.uv.sources]
+conversion-shared = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"

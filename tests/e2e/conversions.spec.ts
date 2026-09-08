@@ -5,7 +5,7 @@ test('single and mixed batch conversion share progress, path memory and folder a
     { building_id: 'rural_001_house_0001', name: '住宅 1', status: 'complete', revision: 4, updated_at: '', preview_kind: 'empty' },
     { building_id: 'rural_001_house_0002', name: '住宅 2', status: 'draft', revision: 2, updated_at: '', preview_kind: 'empty' },
   ];
-  const formats = ['graph', 'image', 'cad', 'embodied_v2'].map((id, i) => ({ id, label: ['Graph', 'Image', 'CAD', 'Embodied v2'][i], directory: ['Graph', 'Image', 'CAD', 'Embodied'][i], version: '1', available: true }));
+  const formats = ['graph', 'image', 'cad', 'embodied'].map((id, i) => ({ id, label: ['Graph', 'Image', 'CAD', 'Embodied'][i], directory: ['Graph', 'Image', 'CAD', 'Embodied'][i], version: '1', available: true }));
   const outputRoot = 'D:\\转换 结果';
   const requests: unknown[] = [];
   let opened = false;

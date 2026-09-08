@@ -1,1 +1,0 @@
-"""Deterministic building traversal."""

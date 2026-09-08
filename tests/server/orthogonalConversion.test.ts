@@ -10,7 +10,7 @@ import { createEmptyBuilding } from '../../src/editor/domain/buildingDocument.ts
 import { previewOrthogonalRepair } from '../../src/editor/commands/orthogonalRepair.ts';
 import { prepareExportDocument } from '../../src/editor/domain/exportUtils.ts';
 
-const python = path.resolve('scripts/preprocess_rural_data/.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+const python = path.resolve('scripts/conversion/.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
 it.skipIf(!existsSync(python))('quarantines a 1 mm diagonal and converts again after the editor repair', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'orthogonal-conversion-'));
   try {
@@ -30,7 +30,7 @@ it.skipIf(!existsSync(python))('quarantines a 1 mm diagonal and converts again a
     const service = new ConversionService({ projectRoot: process.cwd(), dataRoot, port: 0, development: false }, new ProjectService(dataRoot));
     const convert = async (name: string) => {
       await fs.writeFile(source, JSON.stringify(doc));
-      const job = await service.submit({ projects: [{ buildingId: 'orthogonal', revision: doc.metadata.revision }], formats: ['embodied_v2'], outputRoot: path.join(root, name), overwrite: false });
+      const job = await service.submit({ projects: [{ buildingId: 'orthogonal', revision: doc.metadata.revision }], formats: ['embodied'], outputRoot: path.join(root, name), overwrite: false });
       await service.idle();
       return service.get(job.id).items[0];
     };

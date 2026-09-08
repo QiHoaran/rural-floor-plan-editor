@@ -10,12 +10,12 @@
 - **npm** ≥ 10
 - **数据转换功能：Python ≥ 3.13、uv**（独立环境，见下方安装步骤）
 
-## 数据转换（Graph / Image / CAD / Embodied v2）
+## 数据转换（Graph / Image / CAD / Embodied）
 
 首次使用前在项目根目录执行：
 
 ```powershell
-cd scripts/preprocess_rural_data
+cd scripts/conversion
 uv sync --all-packages --all-groups --locked
 .venv/Scripts/python.exe adapter.py --check
 ```
@@ -33,14 +33,14 @@ Linux/macOS 使用 `.venv/bin/python`。后端默认使用该环境，亦可通�
 <指定目录>/<building_id>/Graph/     graph.json、graph.schema.json、vocabulary.json
 <指定目录>/<building_id>/Image/     semantic.png、instance.png、stats.json、Schema及词表
 <指定目录>/<building_id>/CAD/       building.dxf、primitives.json、Schema及词表
-<指定目录>/<building_id>/Embodied/  Embodied v2 的 10 个标准文件
+<指定目录>/<building_id>/Embodied/  Embodied 的 10 个标准文件
 ```
 
 每个成功格式目录附带 `conversion.json`，包含来源 revision、SHA-256、转换版本、
 配置及制品哈希。Image 为 256×256 语义掩码和 16 位实例掩码，并非编辑器截图；
 CAD 以毫米为单位。Graph/Image/CAD 复用参考清洗及几何逻辑，修复只作用于副本。
-Embodied v2 直接处理原始正式 JSON，以默认机器人配置验证独立解码与双向精确还原，
-不支持的源数据输出隔离原因，不生成部分成功数据，也不回退到旧版 Embodied。
+Embodied 直接处理原始正式 JSON，以默认机器人配置验证独立解码与双向精确还原，
+不支持的源数据输出隔离原因，不生成部分成功数据，也不回退到其它实现。
 
 临时文件、隔离报告及任务进度保存在 `<指定目录>/.conversions/<任务ID>/`，
 不写入 `data`；数据目录的符号链接或 Windows junction 别名同样禁止作为输出。
@@ -125,10 +125,11 @@ rural-floor-plan-editor/
 │   ├── pathSafety.ts            # 路径校验
 │   └── errors.ts                # 业务错误类
 ├── scripts/
-│   └── preprocess_rural_data/   # 数据转换 Python 运行环境（uv workspace）
+│   └── conversion/              # 数据转换 Python 运行环境（uv workspace）
 │       ├── adapter.py           # 单建筑转换适配器（JSON Lines 结果）
-│       ├── rural_data_prep/     # Graph/Image/CAD 清洗与几何逻辑
-│       └── rural-embodied-plan/ # Embodied v2 数据包
+│       ├── shared/              # 清洗器与共享转换框架
+│       ├── graph/  image/  cad/ # Graph/Image/CAD 转换
+│       └── embodied/            # Embodied 数据包
 ├── src/
 │   ├── editor/
 │   │   ├── canvas/              # SVG 画布
@@ -297,7 +298,7 @@ draft → pending_review → reviewed → complete
 | 导出 | 空间图导出（节点+边+关系通道） | ✓ |
 | 导出 | GeoJSON 导出（local_cartesian_mm） | ✓ |
 | 导出 | ZIP 建筑包导出 | ✓ |
-| 数据转换 | Graph/Image/CAD/Embodied v2 批量导出（仅 complete 项目） | ✓ |
+| 数据转换 | Graph/Image/CAD/Embodied 批量导出（仅 complete 项目） | ✓ |
 | 数据转换 | Python uv 环境自检、后台任务、进度恢复与覆盖重转 | ✓ |
 | 参考方向 | 统一采用上北、下南、左西、右东 | ✓ |
 | 参考标定 | 比例标定数据结构（可选，不参与质量检查） | ✓ |

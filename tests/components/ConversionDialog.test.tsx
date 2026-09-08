@@ -15,7 +15,7 @@ const formats = [
   { id: 'graph', label: 'Graph', directory: 'Graph', version: '1', available: true },
   { id: 'image', label: 'Image', directory: 'Image', version: '1', available: true },
   { id: 'cad', label: 'CAD', directory: 'CAD', version: '1', available: true },
-  { id: 'embodied_v2', label: 'Embodied v2', directory: 'Embodied', version: '2', available: true },
+  { id: 'embodied', label: 'Embodied', directory: 'Embodied', version: '1', available: true },
 ];
 const queued: api.ConversionJob = { id: 'job1', status: 'queued', outputRoot: 'D:\\转换 结果', items: [{ buildingId: projects[0].building_id, format: 'graph', status: 'queued' }] };
 describe('ConversionDialog', () => {
@@ -56,7 +56,7 @@ describe('ConversionDialog', () => {
       { buildingId: projects[0].building_id, format: 'graph', status: 'succeeded' },
       { buildingId: projects[0].building_id, format: 'image', status: 'skipped', message: '目录已存在' },
       { buildingId: projects[0].building_id, format: 'cad', status: 'failed', message: 'DXF 验证失败' },
-      { buildingId: projects[0].building_id, format: 'embodied_v2', status: 'quarantined', message: '严格几何校验不通过' },
+      { buildingId: projects[0].building_id, format: 'embodied', status: 'quarantined', message: '严格几何校验不通过' },
     ] };
     vi.mocked(api.getConversion).mockResolvedValue(finished);
     render(<ConversionDialog projects={projects} onClose={vi.fn()} />);
@@ -97,7 +97,7 @@ describe('ConversionDialog', () => {
     vi.mocked(api.startConversion).mockRejectedValue(new Error('项目版本已变化'));
     render(<ConversionDialog projects={projects} onClose={vi.fn()} />);
     await screen.findByLabelText('Graph');
-    fireEvent.click(screen.getByLabelText('Image')); fireEvent.click(screen.getByLabelText('CAD')); fireEvent.click(screen.getByLabelText('Embodied v2'));
+    fireEvent.click(screen.getByLabelText('Image')); fireEvent.click(screen.getByLabelText('CAD')); fireEvent.click(screen.getByLabelText('Embodied'));
     fireEvent.click(screen.getByLabelText('覆盖已有结果')); fireEvent.click(screen.getByText('开始转换'));
     expect(await screen.findByRole('alert')).toHaveTextContent('项目版本已变化');
     expect(api.startConversion).toHaveBeenCalledWith(expect.objectContaining({ formats: ['graph'], overwrite: true }));

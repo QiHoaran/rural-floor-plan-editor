@@ -17,12 +17,12 @@ export class PythonRunner implements ConversionRunner {
   private readonly directory: string;
   private readonly executable: string;
   constructor(projectRoot: string, executable?: string) {
-    this.directory=path.join(projectRoot,'scripts','preprocess_rural_data');
+    this.directory=path.join(projectRoot,'scripts','conversion');
     this.executable=executable ?? path.join(this.directory,'.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python');
   }
   async check(): Promise<{available:boolean;reason?:string}> {
     try { await this.execute(['--check'],async()=>{},30_000); return {available:true}; }
-    catch (error) { return {available:false, reason:`Python 转换环境不可用，请在 scripts/preprocess_rural_data 执行 uv sync --all-packages --all-groups --locked。${error instanceof Error?error.message:''}`}; }
+    catch (error) { return {available:false, reason:`Python 转换环境不可用，请在 scripts/conversion 执行 uv sync --all-packages --all-groups --locked。${error instanceof Error?error.message:''}`}; }
   }
   async run(request: RunnerRequest, event: (result: RunnerEvent)=>Promise<void>): Promise<void> {
     const filename=path.join(path.dirname(request.source_path),'request.json');

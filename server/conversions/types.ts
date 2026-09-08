@@ -5,7 +5,7 @@ export const FORMATS: FormatDescriptor[] = [
   {id:'graph', label:'Graph', directory:'Graph', version:'1.0.0'},
   {id:'image', label:'Image', directory:'Image', version:'1.0.0'},
   {id:'cad', label:'CAD', directory:'CAD', version:'1.0.0'},
-  {id:'embodied_v2', label:'Embodied v2', directory:'Embodied', version:'2.0.0'},
+  {id:'embodied', label:'Embodied', directory:'Embodied', version:'1.0.0'},
 ];
 export interface ConversionInput {
   projects: {buildingId: string; revision: number}[];

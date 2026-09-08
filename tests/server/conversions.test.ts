@@ -94,9 +94,9 @@ it('reports quarantine independently and never publishes its partial directory',
   runner.run=async(req,event)=>{
     await normal({...req,formats:['graph']},event);
     await fs.mkdir(path.join(req.output_dir,'Embodied')); await fs.writeFile(path.join(req.output_dir,'Embodied','quarantine_report.json'),'{}');
-    await event({format:'embodied_v2',status:'quarantined',message:'UNSUPPORTED_GEOMETRY'});
+    await event({format:'embodied',status:'quarantined',message:'UNSUPPORTED_GEOMETRY'});
   };
-  const s=service(); const job=await finished(s,(await s.submit({...input(),formats:['graph','embodied_v2']})).id);
+  const s=service(); const job=await finished(s,(await s.submit({...input(),formats:['graph','embodied']})).id);
   expect(job.items.map(i=>i.status)).toEqual(['succeeded','quarantined']);
   await expect(fs.stat(path.join(output,source.building_id,'Embodied'))).rejects.toThrow();
 });
@@ -125,7 +125,7 @@ it('exposes async job APIs, structured input errors and opening the registered o
   const app=express();app.use(express.json());app.use('/api/conversions',createConversionRouter(s));
   app.use(((error:Error,_req:unknown,res:express.Response,_next:unknown)=>{res.status(error instanceof ServiceError?error.status:500).json({error:{message:error.message}});}) as express.ErrorRequestHandler);
   const formats=await request(app).get('/api/conversions/formats').expect(200);
-  expect(formats.body.formats.map((f:{id:string})=>f.id)).toContain('embodied_v2');
+  expect(formats.body.formats.map((f:{id:string})=>f.id)).toContain('embodied');
   await request(app).post('/api/conversions').send({...input(),formats:['invalid']}).expect(400);
   const result=await request(app).post('/api/conversions').send(input()).expect(202);
   await s.idle(); const job=await request(app).get(`/api/conversions/${result.body.id}`).expect(200);

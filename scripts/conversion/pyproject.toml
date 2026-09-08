@@ -1,0 +1,13 @@
+[tool.uv.workspace]
+members = ["shared", "graph", "image", "cad", "embodied"]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.1",
+    "types-jsonschema>=4.26.0.20260518",
+    "types-pyyaml>=6.0.12.20260724",
+    "types-shapely>=2.1.0.20260728",
+]

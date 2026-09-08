@@ -1,0 +1,19 @@
+[project]
+name = "conversion-image"
+version = "1.0.0"
+description = "Deterministic Image training-data conversion for rural floor plans"
+requires-python = ">=3.13"
+dependencies = [
+    "conversion-shared",
+    "Pillow>=12.0,<13",
+]
+
+[project.scripts]
+conversion-image = "conversion_image.cli:main"
+
+[tool.uv.sources]
+conversion-shared = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"
