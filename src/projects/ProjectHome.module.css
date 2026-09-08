@@ -104,6 +104,9 @@
   box-shadow: 0 8px 30px rgba(15, 23, 42, 0.05);
   overflow: hidden;
   transition: transform 0.15s, border-color 0.15s;
+  /* 注意：不要在此加 content-visibility: auto。屏外卡片的占位高度与实测高度对不上，
+     会让 useProjectIndex 的滚动锚点恢复（useLayoutEffect）偏移 275px 以上，
+     tests/e2e/projectIndex.spec.ts 的 <4px 断言会失败。 */
 }
 
 .projectCard:hover {

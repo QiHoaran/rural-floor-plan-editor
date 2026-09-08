@@ -9,7 +9,6 @@ import {
   trashProject,
   restoreProject,
   downloadProjectArchive,
-  projectPreviewUrl,
   type ProjectSummary,
 } from '@/api/projectApi.ts';
 import type { BuildingDocument } from '@/editor/domain/buildingTypes.ts';
@@ -19,48 +18,69 @@ import { ConversionDialog } from './ConversionDialog.tsx';
 import { hasSavedConversion } from './conversionStorage.ts';
 import { uploadReferenceImageFile } from './imageFile.ts';
 import { useProjectIndex, readIndexState } from './useProjectIndex.ts';
+import { ProjectCard } from './ProjectCard.tsx';
+import { STATUS_LABELS, formatProjectDate } from './projectFormat.ts';
 import styles from './ProjectHome.module.css';
 
 interface ProjectHomeProps {
   onOpen: (buildingId: string, document?: BuildingDocument) => void;
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  draft: '草稿',
-  pending_review: '待审核',
-  reviewed: '已审核',
-  complete: '已完成',
-};
-
 export function ProjectHome({ onOpen }: ProjectHomeProps) {
   const requestGeneration = useRef(0);
-  const [projects, setProjects] = useState<ProjectSummary[]>(() => readIndexState().projects ?? []);
+  // sessionStorage 只解析一次：projects/state/selectedIds 与 useProjectIndex 共用同一份快照。
+  const [initial] = useState(readIndexState);
+  const [projects, setProjects] = useState<ProjectSummary[]>(() => initial.projects ?? []);
   const projectsRef = useRef(projects);
   projectsRef.current = projects;
   const [trashed, setTrashed] = useState<ProjectSummary[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>(() =>
-    readIndexState().projects?.length ? 'ready' : 'loading',
+    initial.projects?.length ? 'ready' : 'loading',
   );
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [conversionProjects, setConversionProjects] = useState<ProjectSummary[] | null>(() => hasSavedConversion() ? [] : null);
   const [importMessage, setImportMessage] = useState('');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(readIndexState().selected ?? []));
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(initial.selected ?? []));
   const [legacyBatchBusy, setBatchBusy] = useState(false);
   const [batchMessage, setBatchMessage] = useState('');
-  const index = useProjectIndex(projects, setProjects, selectedIds, setSelectedIds, setBatchMessage);
+  const index = useProjectIndex(projects, setProjects, selectedIds, setSelectedIds, setBatchMessage, initial);
   const batchBusy = legacyBatchBusy || index.busy;
+  // index 对象每次渲染都会重建，但其中这两个成员是稳定引用；先取出再进 useCallback，
+  // 否则整个 index 成为依赖，卡片回调会随之变化、memo 失效。
+  const { remember, setDetails } = index;
   const [trashOpen, setTrashOpen] = useState(false);
   const [trashError, setTrashError] = useState('');
   const [openError, setOpenError] = useState('');
   const [opening, setOpening] = useState(false);
-  const openBuilding = async (id: string, document?: BuildingDocument) => {
-    if (opening || batchBusy) return;
-    index.remember(id); setOpening(true); setOpenError('');
+  const [dropState, setDropState] = useState<{
+    buildingId: string;
+    status: 'hover' | 'busy' | 'success' | 'error';
+    message: string;
+  } | null>(null);
+  // 卡片回调需要稳定引用（memo 生效的前提），因此易变状态通过 ref 读取。
+  const openingRef = useRef(opening);
+  openingRef.current = opening;
+  const batchBusyRef = useRef(batchBusy);
+  batchBusyRef.current = batchBusy;
+  const dropStateRef = useRef(dropState);
+  dropStateRef.current = dropState;
+
+  const openBuilding = useCallback(async (id: string, document?: BuildingDocument) => {
+    if (openingRef.current || batchBusyRef.current) return;
+    openingRef.current = true;
+    // 取消挂起的滚动回调，否则它会在 remember(id) 之后用「首张屏外卡片」覆盖锚点。
+    if (scrollRaf.current) { cancelAnimationFrame(scrollRaf.current); scrollRaf.current = 0; }
+    remember(id);
+    setOpening(true);
+    setOpenError('');
     try { if (document) await onOpen(id, document); else await onOpen(id); }
     catch (error) { setOpenError(error instanceof Error ? error.message : '无法打开建筑'); }
-    finally { setOpening(false); }
-  };
+    finally { openingRef.current = false; setOpening(false); }
+  }, [onOpen, remember]);
+  const openBuildingRef = useRef(openBuilding);
+  openBuildingRef.current = openBuilding;
+
   useEffect(() => {
     if (!trashOpen) return;
     let active = true;
@@ -68,11 +88,6 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
     listTrashedProjects().then(items => { if (active) setTrashed(items); }).catch(() => { if (active) setTrashError('无法读取回收站'); });
     return () => { active = false; };
   }, [trashOpen, projects]);
-  const [dropState, setDropState] = useState<{
-    buildingId: string;
-    status: 'hover' | 'busy' | 'success' | 'error';
-    message: string;
-  } | null>(null);
 
   const refresh = useCallback(() => {
     let active = true;
@@ -81,12 +96,18 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
     listProjects()
       .then((activeItems) => {
         if (!active || generation !== requestGeneration.current) return;
-        setProjects(current => activeItems.map(item => {
-          const local = current.find(p => p.building_id === item.building_id);
-          // A concurrent check may finish after this list request took its snapshot.
-          if (local && local !== baseline.get(item.building_id) && local.revision >= item.revision) return local;
-          return item;
-        }));
+        setProjects(current => {
+          const currentById = new Map(current.map(p => [p.building_id, p]));
+          return activeItems.map(item => {
+            const local = currentById.get(item.building_id);
+            // A concurrent check may finish after this list request took its snapshot.
+            if (local && local !== baseline.get(item.building_id) && local.revision >= item.revision) return local;
+            // 内容完全一致时复用原对象，避免刷新导致 465 张卡片全部重渲染；
+            // 只要服务端有任何字段变化（例如状态变化但 revision 未变）就必须采用新值。
+            if (local && JSON.stringify(local) === JSON.stringify(item)) return local;
+            return item;
+          });
+        });
 
         const activeIds = new Set(activeItems.map((item) => item.building_id));
         setSelectedIds((current) =>
@@ -104,7 +125,18 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
 
   useEffect(() => refresh(), [refresh]);
 
-  const handleDelete = async (buildingId: string) => {
+  // 滚动事件高频触发：用 rAF 合并，避免每次事件都遍历 465 个卡片节点。
+  const scrollRaf = useRef(0);
+  const handleScroll = useCallback(() => {
+    if (scrollRaf.current) return;
+    scrollRaf.current = requestAnimationFrame(() => {
+      scrollRaf.current = 0;
+      remember();
+    });
+  }, [remember]);
+  useEffect(() => () => { if (scrollRaf.current) cancelAnimationFrame(scrollRaf.current); }, []);
+
+  const handleDelete = useCallback(async (buildingId: string) => {
     if (!confirm(`确定删除建筑「${buildingId}」？可稍后从回收站恢复。`)) return;
     try {
       await trashProject(buildingId);
@@ -115,7 +147,7 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
         err instanceof Error ? err.message : '删除失败',
       );
     }
-  };
+  }, [refresh]);
 
   const handleRestore = async (buildingId: string) => {
     try {
@@ -129,14 +161,14 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
     }
   };
 
-  const toggleSelected = (buildingId: string) => {
+  const toggleSelected = useCallback((buildingId: string) => {
     setSelectedIds((current) => {
       const next = new Set(current);
       if (next.has(buildingId)) next.delete(buildingId);
       else next.add(buildingId);
       return next;
     });
-  };
+  }, []);
 
   const handleBatchDelete = async () => {
     const ids = [...selectedIds];
@@ -181,13 +213,13 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
     setBatchBusy(false);
   };
 
-  const handleCardDrop = async (
+  const handleCardDrop = useCallback(async (
     event: DragEvent<HTMLDivElement>,
     project: ProjectSummary,
   ) => {
     event.preventDefault();
     event.stopPropagation();
-    if (batchBusy || dropState?.status === 'busy') return;
+    if (batchBusyRef.current || dropStateRef.current?.status === 'busy') return;
     if (project.has_reference_image) {
       setDropState({
         buildingId: project.building_id,
@@ -233,10 +265,14 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
       window.setTimeout(() => setDropState((current) =>
         current?.buildingId === project.building_id ? null : current), 2400);
     }
-  };
+  }, [refresh]);
+
+  const handleOpenCard = useCallback((id: string) => { void openBuildingRef.current(id); }, []);
+  const handleDetails = useCallback((id: string) => setDetails(id), [setDetails]);
+  const handleConvert = useCallback((project: ProjectSummary) => setConversionProjects([project]), []);
 
   return (
-    <main ref={index.homeRef} className={styles.home} onScroll={() => index.remember()}>
+    <main ref={index.homeRef} className={styles.home} onScroll={handleScroll}>
       <section className={styles.hero}>
         <div>
           <p className={styles.eyebrow}>RURAL BUILDING DATA</p>
@@ -333,100 +369,22 @@ export function ProjectHome({ onOpen }: ProjectHomeProps) {
         <div className={index.view === 'list' ? styles.projectList : styles.projectGrid}>
           {index.view === 'list' && <div className={styles.listHeader}><span>选择</span><span>建筑 / 状态 / 检查</span><span>房间 · 面积 · 标注 · 更新时间</span><span>操作</span></div>}
           {index.visible.map((project) => (
-            <div
+            <ProjectCard
               key={project.building_id}
-              data-building-id={project.building_id}
-              data-check-status={project.check?.status ?? 'unchecked'}
-              className={`${styles.projectCard} ${project.check?.status === 'error' ? styles.checkError : ''} ${index.highlight === project.building_id ? styles.highlight : ''} ${
-                selectedIds.has(project.building_id) ? styles.projectCardSelected : ''
-              } ${dropState?.buildingId === project.building_id ? styles.projectCardDropActive : ''}`}
-              onDragEnter={(event) => {
-                if (!event.dataTransfer.types.includes('Files')) return;
-                event.preventDefault();
-                setDropState({
-                  buildingId: project.building_id,
-                  status: 'hover',
-                  message: project.has_reference_image
-                    ? '已有参考图，不能覆盖'
-                    : '松开以导入参考图',
-                });
-              }}
-              onDragOver={(event) => {
-                if (!event.dataTransfer.types.includes('Files')) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = project.has_reference_image ? 'none' : 'copy';
-              }}
-              onDragLeave={(event) => {
-                const next = event.relatedTarget as Node | null;
-                if (!next || !event.currentTarget.contains(next)) {
-                  if (dropState?.status === 'hover') setDropState(null);
-                }
-              }}
-              onDrop={(event) => void handleCardDrop(event, project)}
-            >
-              <label className={styles.projectSelector}>
-                <input
-                  type="checkbox"
-                  aria-label={`选择 ${project.building_id}`}
-                  disabled={batchBusy}
-                  checked={selectedIds.has(project.building_id)}
-                  onChange={() => toggleSelected(project.building_id)}
-                />
-              </label>
-              <button
-                className={styles.projectCardMain}
-                disabled={batchBusy || opening}
-                onClick={() => void openBuilding(project.building_id)}
-              >
-                <div className={styles.cardThumbnail} aria-hidden="true">
-                  {project.preview_kind !== 'empty' && (
-                    <img
-                      src={projectPreviewUrl(project.building_id, project.revision)}
-                      alt=""
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  )}
-                </div>
-                <div className={styles.cardInfo}>
-                  <div className={styles.cardInfoRow}>
-                    <strong title={project.name}>{project.building_id}</strong>
-                    <span className={`${styles.statusBadge} ${styles[project.status]}`}>
-                      {STATUS_LABELS[project.status] ?? project.status}
-                    </span>
-                  </div>
-                  <span className={styles.cardName}>{project.name !== project.building_id ? project.name : ''}</span>
-                  <span className={project.check?.status === 'error' ? styles.errorCount : project.check?.status === 'warning' ? styles.warningCount : styles.checkLabel}>
-                    {{ unchecked: '待重新检查', passed: '检查通过', warning: '检查有警告', error: '检查失败' }[project.check?.status ?? 'unchecked']}
-                  </span>
-                  <div className={styles.cardInfoRow}>
-                    <time>{formatProjectDate(project.updated_at)}</time>
-                    <span>参考图[{project.has_reference_image ? '✓' : ' '}]</span>
-                  </div>
-                  <div className={`${styles.cardInfoRow} ${styles.cardMetrics}`}>
-                    <span>房间{project.room_count}</span>
-                    <span>面积{(project.total_floor_area_m2 ?? 0).toFixed(1)}m²</span>
-                    <span>标注{project.room_semantic_progress}%</span>
-                  </div>
-                </div>
-              </button>
-              <button className={styles.detailButton} aria-label={`详情 ${project.building_id}`} onClick={() => index.setDetails(project.building_id)}>详情</button>
-              <button className={styles.conversionButton} aria-label={`数据转换 ${project.building_id}`} title={project.status === 'complete' ? '数据转换' : '仅已完成项目可以转换'} disabled={batchBusy || project.status !== 'complete'} onClick={() => setConversionProjects([project])}>数据转换</button>
-              <button
-                disabled={batchBusy}
-                className={styles.deleteBtn}
-                aria-label={`删除 ${project.building_id}`}
-                title="移入回收站"
-                onClick={() => handleDelete(project.building_id)}
-              >
-                🗑
-              </button>
-              {dropState?.buildingId === project.building_id && (
-                <div className={`${styles.dropOverlay} ${styles[dropState.status]}`}>
-                  {dropState.message}
-                </div>
-              )}
-            </div>
+              project={project}
+              selected={selectedIds.has(project.building_id)}
+              highlighted={index.highlight === project.building_id}
+              disabled={batchBusy || opening}
+              drop={dropState?.buildingId === project.building_id
+                ? { status: dropState.status, message: dropState.message }
+                : null}
+              onToggle={toggleSelected}
+              onOpen={handleOpenCard}
+              onDetails={handleDetails}
+              onConvert={handleConvert}
+              onDelete={handleDelete}
+              onDropFile={handleCardDrop}
+            />
           ))}
         </div>
       </section>
@@ -503,14 +461,4 @@ function downloadBlob(blob: Blob, filename: string): void {
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
-}
-
-function formatProjectDate(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  }).format(date);
 }
