@@ -1,0 +1,16 @@
+[project]
+name = "conversion-housegan"
+version = "1.0.0"
+description = "House-GAN++ geometry with a fixed rural room vocabulary"
+requires-python = ">=3.13"
+dependencies = ["conversion-shared", "numpy>=2", "pillow>=11", "shapely>=2", "jsonschema>=4"]
+
+[project.scripts]
+conversion-housegan = "conversion_housegan.cli:main"
+
+[tool.uv.sources]
+conversion-shared = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"

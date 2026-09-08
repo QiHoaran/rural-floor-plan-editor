@@ -63,7 +63,7 @@ class AdapterTests(unittest.TestCase):
         with patch("conversion_shared.records.build_records", wraps=build_records) as records:
             adapter.convert(request, events.append)
         self.assertEqual(records.call_count, 1)
-        self.assertEqual([e["status"] for e in events], ["succeeded"] * 4, events)
+        self.assertEqual([e["status"] for e in events], ["succeeded"] * 5, events)
         cleaned = build_records(BuildingSource("test", self.source, "test/building.json", request["source_sha256"], self.document))
         read = lambda name: json.loads((self.root / name).read_text(encoding="utf-8"))
         self.assertEqual(read("Graph/graph.json"), build_graph_record(cleaned.canonical, cleaned.training))
@@ -78,7 +78,8 @@ class AdapterTests(unittest.TestCase):
         build_artifacts(self.document, reference, Config())
         for file in reference.iterdir():
             self.assertEqual(file.read_bytes(), (self.root / "Embodied" / file.name).read_bytes())
-        for directory in ("Graph", "Image", "CAD", "Embodied"):
+        self.assertEqual(read("HouseGAN/housegan.json")["room_type"], [16, 15])
+        for directory in ("Graph", "Image", "CAD", "Embodied", "HouseGAN"):
             metadata = read(f"{directory}/conversion.json")
             self.assertEqual(metadata["source_revision"], 7)
             for artifact in metadata["artifacts"]:

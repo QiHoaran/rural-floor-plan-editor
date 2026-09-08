@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "conversion-cad",
     "conversion-graph",
+    "conversion-housegan",
     "conversion-image",
     "conversion-shared",
     "embodied",
@@ -151,6 +152,27 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "conversion-shared", editable = "shared" }]
+
+[[package]]
+name = "conversion-housegan"
+version = "1.0.0"
+source = { editable = "housegan" }
+dependencies = [
+    { name = "conversion-shared" },
+    { name = "jsonschema" },
+    { name = "numpy" },
+    { name = "pillow" },
+    { name = "shapely" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "conversion-shared", editable = "shared" },
+    { name = "jsonschema", specifier = ">=4" },
+    { name = "numpy", specifier = ">=2" },
+    { name = "pillow", specifier = ">=11" },
+    { name = "shapely", specifier = ">=2" },
+]
 
 [[package]]
 name = "conversion-image"

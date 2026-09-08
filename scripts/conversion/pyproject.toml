@@ -1,5 +1,5 @@
 [tool.uv.workspace]
-members = ["shared", "graph", "image", "cad", "embodied"]
+members = ["shared", "graph", "image", "cad", "embodied", "housegan"]
 
 [dependency-groups]
 dev = [

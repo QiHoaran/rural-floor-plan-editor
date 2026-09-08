@@ -136,12 +136,18 @@ def embodied(context: Context, output: Path) -> dict[str, Any]:
     return config.model_dump(mode="json")
 
 
+def housegan(context: Context, output: Path) -> dict[str, Any]:
+    from conversion_housegan.housegan import write_artifacts
+    return write_artifacts(context.cleaned.canonical, output)
+
+
 # Add a converter here; task execution and the JSON-lines protocol remain unchanged.
 REGISTRY = {item.id: item for item in (
     Converter("graph", "Graph", "Graph", "1.0.0", ("conversion_graph.graph",), graph, True),
     Converter("image", "Image", "Image", "1.0.0", ("conversion_image.image",), image, True),
     Converter("cad", "CAD", "CAD", "1.0.0", ("conversion_cad.cad", "ezdxf"), cad, True),
     Converter("embodied", "Embodied", "Embodied", "1.0.0", ("embodied.pipeline",), embodied),
+    Converter("housegan", "HouseGAN", "HouseGAN", "1.0.0", ("conversion_housegan.housegan",), housegan, True),
 )}
 
 

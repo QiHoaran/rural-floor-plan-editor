@@ -10,7 +10,7 @@ import { ConversionService } from '../../server/conversions/service.ts';
 import { createEmptyBuilding } from '../../src/editor/domain/buildingDocument.ts';
 
 const python=path.resolve('scripts/conversion/.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python');
-it.skipIf(!existsSync(python))('integrates Node snapshot, real Python four-format worker, verified publication and deterministic overwrite',async()=>{
+it.skipIf(!existsSync(python))('integrates Node snapshot, real Python five-format worker, verified publication and deterministic overwrite',async()=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'rural-python-integration-'));
   try {
     const document=createEmptyBuilding('rural_001_house_0001','reference/original.png');
@@ -26,12 +26,13 @@ it.skipIf(!existsSync(python))('integrates Node snapshot, real Python four-forma
     const dataRoot=path.join(root,'data');const source=path.join(dataRoot,document.building_id,'building.json');
     await fs.mkdir(path.dirname(source),{recursive:true});const bytes=JSON.stringify(document);await fs.writeFile(source,bytes);
     const service=new ConversionService({projectRoot:process.cwd(),dataRoot,port:0,development:false},new ProjectService(dataRoot));
-    const input={projects:[{buildingId:document.building_id,revision:0}],formats:['graph','image','cad','embodied'],outputRoot:path.join(root,'中文 output'),overwrite:false};
+    const input={projects:[{buildingId:document.building_id,revision:0}],formats:['graph','image','cad','embodied','housegan'],outputRoot:path.join(root,'中文 output'),overwrite:false};
+    expect((await service.formats()).formats).toContainEqual(expect.objectContaining({id:'housegan',label:'HouseGAN',directory:'HouseGAN',available:true}));
     const job=await service.submit(input);await service.idle();
     expect(service.get(job.id).items).toEqual(input.formats.map(format=>({buildingId:document.building_id,format,status:'succeeded'})));
     const hashes=new Map<string,string>();
     const originals=new Map<string,Buffer>();
-    for(const directory of ['Graph','Image','CAD','Embodied']) {
+    for(const directory of ['Graph','Image','CAD','Embodied','HouseGAN']) {
       const dir=path.join(input.outputRoot,document.building_id,directory);
       const manifest=JSON.parse(await fs.readFile(path.join(dir,'conversion.json'),'utf8'));
       expect(manifest.source_sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
@@ -45,6 +46,11 @@ it.skipIf(!existsSync(python))('integrates Node snapshot, real Python four-forma
     expect(await fs.readFile(path.join(embodied,'canonical_floorplan.json'),'utf8')).toBe(await fs.readFile(path.join(embodied,'reconstructed_floorplan.json'),'utf8'));
     const image=await fs.readFile(path.join(input.outputRoot,document.building_id,'Image','instance.png'));
     expect(image.readUInt32BE(16)).toBe(256);expect(image.readUInt32BE(20)).toBe(256);expect(image[24]).toBe(16);
+    const housegan=JSON.parse(await fs.readFile(path.join(input.outputRoot,document.building_id,'HouseGAN','housegan.json'),'utf8'));
+    expect(housegan.room_type).toEqual([3,15]);
+    expect(housegan.ed_rm.some((ids:number[])=>ids.includes(0)&&ids.includes(1))).toBe(true);
+    const solo=await service.submit({...input,formats:['housegan'],outputRoot:path.join(root,'housegan-only')});await service.idle();
+    expect(service.get(solo.id).items).toEqual([{buildingId:document.building_id,format:'housegan',status:'succeeded'}]);
     const second=await service.submit({...input,overwrite:true});await service.idle();
     expect(service.get(second.id).items.every(item=>item.status==='succeeded')).toBe(true);
     for(const [file,hash] of hashes) {

@@ -16,6 +16,7 @@ const formats = [
   { id: 'image', label: 'Image', directory: 'Image', version: '1', available: true },
   { id: 'cad', label: 'CAD', directory: 'CAD', version: '1', available: true },
   { id: 'embodied', label: 'Embodied', directory: 'Embodied', version: '1', available: true },
+  { id: 'housegan', label: 'HouseGAN', directory: 'HouseGAN', version: '1', available: true },
 ];
 const queued: api.ConversionJob = { id: 'job1', status: 'queued', outputRoot: 'D:\\转换 结果', items: [{ buildingId: projects[0].building_id, format: 'graph', status: 'queued' }] };
 describe('ConversionDialog', () => {
@@ -97,7 +98,7 @@ describe('ConversionDialog', () => {
     vi.mocked(api.startConversion).mockRejectedValue(new Error('项目版本已变化'));
     render(<ConversionDialog projects={projects} onClose={vi.fn()} />);
     await screen.findByLabelText('Graph');
-    fireEvent.click(screen.getByLabelText('Image')); fireEvent.click(screen.getByLabelText('CAD')); fireEvent.click(screen.getByLabelText('Embodied'));
+    fireEvent.click(screen.getByLabelText('Image')); fireEvent.click(screen.getByLabelText('CAD')); fireEvent.click(screen.getByLabelText('Embodied')); fireEvent.click(screen.getByLabelText('HouseGAN'));
     fireEvent.click(screen.getByLabelText('覆盖已有结果')); fireEvent.click(screen.getByText('开始转换'));
     expect(await screen.findByRole('alert')).toHaveTextContent('项目版本已变化');
     expect(api.startConversion).toHaveBeenCalledWith(expect.objectContaining({ formats: ['graph'], overwrite: true }));
@@ -107,5 +108,13 @@ describe('ConversionDialog', () => {
     render(<ConversionDialog projects={projects} onClose={vi.fn()} />);
     expect(await screen.findByLabelText('Graph（不可用：请安装 Python 环境）')).toBeDisabled();
     expect(screen.getByText('开始转换')).toBeDisabled();
+  });
+  it('submits HouseGAN on its own', async () => {
+    render(<ConversionDialog projects={projects} onClose={vi.fn()} />);
+    await screen.findByLabelText('HouseGAN');
+    for (const format of formats.filter(format => format.id !== 'housegan')) fireEvent.click(screen.getByLabelText(format.label));
+    fireEvent.change(screen.getByLabelText('输出文件夹'), { target: { value: queued.outputRoot } });
+    fireEvent.click(screen.getByText('开始转换'));
+    await waitFor(() => expect(api.startConversion).toHaveBeenCalledWith(expect.objectContaining({ formats: ['housegan'] })));
   });
 });

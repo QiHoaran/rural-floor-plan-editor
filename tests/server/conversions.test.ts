@@ -126,6 +126,7 @@ it('exposes async job APIs, structured input errors and opening the registered o
   app.use(((error:Error,_req:unknown,res:express.Response,_next:unknown)=>{res.status(error instanceof ServiceError?error.status:500).json({error:{message:error.message}});}) as express.ErrorRequestHandler);
   const formats=await request(app).get('/api/conversions/formats').expect(200);
   expect(formats.body.formats.map((f:{id:string})=>f.id)).toContain('embodied');
+  expect(formats.body.formats).toContainEqual(expect.objectContaining({id:'housegan',label:'HouseGAN',directory:'HouseGAN'}));
   await request(app).post('/api/conversions').send({...input(),formats:['invalid']}).expect(400);
   const result=await request(app).post('/api/conversions').send(input()).expect(202);
   await s.idle(); const job=await request(app).get(`/api/conversions/${result.body.id}`).expect(200);

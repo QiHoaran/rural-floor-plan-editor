@@ -2,10 +2,13 @@ import { defineConfig } from '@playwright/test';
 import os from 'node:os';
 import path from 'node:path';
 
-const e2eDataRoot = path.join(
+const e2eDataRoot = process.env.RURAL_E2E_DATA_ROOT ?? path.join(
   os.tmpdir(),
   `rural-floor-plan-editor-e2e-${process.pid}`,
 );
+// Workers reload this config with another PID; keep fixture writers and server
+// on the same isolated root by inheriting the coordinator's chosen directory.
+process.env.RURAL_E2E_DATA_ROOT = e2eDataRoot;
 const e2ePort = Number(process.env.E2E_PORT ?? 4173);
 
 export default defineConfig({

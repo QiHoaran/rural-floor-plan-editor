@@ -1,12 +1,13 @@
 # Rural data conversion workspace
 
-This uv workspace converts surveyed rural building floor plans into four model-ready formats. It contains five packages:
+This uv workspace converts surveyed rural building floor plans into five model-ready formats. It contains six packages:
 
 - `conversion-shared` (`shared/`): deterministic cleaner plus the shared conversion framework (vocabulary, schemas, corpus loading, publication).
 - `conversion-graph` (`graph/`): builds Graph datasets from cleaned canonical records.
 - `conversion-image` (`image/`): builds Image (semantic + room-instance masks) datasets.
 - `conversion-cad` (`cad/`): builds CAD (millimetre primitives + DXF) datasets.
 - `embodied` (`embodied/`): builds deterministic Embodied navigation and token datasets.
+- `conversion-housegan` (`housegan/`): House-GAN++ geometry and a fixed rural vocabulary, including sunroom 18.
 
 ## Environment
 
@@ -27,6 +28,7 @@ uv run conversion-clean clean --input ..\..\data\rural_data\JSON --output ..\..\
 uv run conversion-graph --force
 uv run conversion-image --force
 uv run conversion-cad --force
+uv run conversion-housegan --input D:\data\house\building.json --output D:\output\house\HouseGAN
 uv run embodied build-corpus --input-root ..\..\data\rural_data\cleaned --output-root ..\..\data\rural_data\model_ready\embodied
 ```
 
@@ -47,3 +49,4 @@ uv run mypy --config-file embodied/pyproject.toml embodied/src
 ```
 
 See `embodied/README.md` for the Embodied data model and CLI details.
+See `housegan/README.md` for HouseGAN artifacts, class IDs and upstream model usage.
