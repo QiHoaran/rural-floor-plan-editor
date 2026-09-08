@@ -10,6 +10,7 @@ const e2ePort = Number(process.env.E2E_PORT ?? 4173);
 
 export default defineConfig({
   testDir: './tests/e2e',
+  outputDir: './tests/test-results',
   timeout: 30000,
   retries: 0,
   use: {
