@@ -136,6 +136,81 @@ def _door(element: dict, walls: dict, vertices: dict, relations: list, room_indi
     return ring, edges, 15 if outside else 17, sorted(room_ids)
 
 
+def _shared_boundary(polygons: list[Polygon], first: int, second: int) -> list:
+    """Positive-length boundary pieces shared by two room polygons."""
+    common = polygons[first].boundary.intersection(polygons[second].boundary)
+    pieces = [piece for piece in getattr(common, 'geoms', [common])
+              if piece.geom_type == 'LineString' and piece.length > EPS]
+    return pieces or ([common] if common.length > EPS else [])
+
+
+def _check_loops(loops: list[list], nodes: list[dict]) -> None:
+    """Reject an owner loop that traverses the same segment twice."""
+    for owner, loop in enumerate(loops):
+        pairs = [(start, end) if start <= end else (end, start) for start, end, _ in loop]
+        if len(set(pairs)) != len(pairs):
+            raise ValueError(f"HOUSEGAN_DUPLICATE_EDGE: {nodes[owner]['source_id']}")
+
+
+def _conversion_graph(nodes: list[dict], loops: list[list], polygons: list[Polygon], room_count: int) -> dict:
+    """Explicit room/door adjacency plus a geometric cross-check of every room-room pair.
+
+    Room-room pairs are derived twice: from the owner loops that become ``edges``, and
+    independently from the shared boundary of the room polygons. Any divergence is a
+    converter bug, so it fails instead of silently emitting a missing or spurious edge.
+    """
+    neighbors = [set() for _ in nodes]
+    for owner, loop in enumerate(loops):
+        for _start, _end, neighbor in loop:
+            if neighbor is None:
+                continue
+            neighbors[owner].add(neighbor)
+            neighbors[neighbor].add(owner)
+    loop_pairs = {(i, j) for i in range(room_count) for j in neighbors[i] if i < j < room_count}
+    shared = {}
+    for i in range(room_count):
+        for j in range(i+1, room_count):
+            pieces = _shared_boundary(polygons, i, j)
+            if pieces:
+                shared[(i, j)] = pieces
+    for pair in sorted(shared.keys() | loop_pairs):
+        if pair not in loop_pairs:
+            raise ValueError(f"HOUSEGAN_MISSING_ADJACENCY: {nodes[pair[0]]['source_id']} {nodes[pair[1]]['source_id']}")
+        if pair not in shared:
+            raise ValueError(f"HOUSEGAN_SPURIOUS_ADJACENCY: {nodes[pair[0]]['source_id']} {nodes[pair[1]]['source_id']}")
+    adjacencies = [{'a': i, 'b': j, 'kind': 'room-room', 'segments': len(pieces),
+                    'length_mm': round(sum(piece.length for piece in pieces), 3)}
+                   for (i, j), pieces in sorted(shared.items())]
+    for owner in range(room_count, len(nodes)):
+        kind = 'room-front-door' if nodes[owner]['class_id'] == 15 else 'room-interior-door'
+        adjacencies.extend({'a': room, 'b': owner, 'kind': kind} for room in sorted(neighbors[owner]))
+    adjacencies.sort(key=lambda item: (item['a'], item['b']))
+    totals = {'room_room': 0, 'room_interior_door': 0, 'room_front_door': 0}
+    for item in adjacencies:
+        totals[item['kind'].replace('-', '_')] += 1
+    parent = list(range(len(nodes)))
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+    for owner, adjacent in enumerate(neighbors):
+        for other in adjacent:
+            root, target = find(owner), find(other)
+            if root != target:
+                parent[root] = target
+    totals['max_degree'] = max((len(item) for item in neighbors), default=0)
+    totals['components'] = len({find(i) for i in range(len(nodes))})
+    totals['isolated_node_indices'] = [i for i, item in enumerate(neighbors) if not item]
+    return {
+        'schema_version': 'housegan-conversion-graph/1.0.0',
+        'nodes': [{'index': i, 'source_id': node['source_id'], 'neighbors': sorted(neighbors[i])}
+                  for i, node in enumerate(nodes)],
+        'adjacencies': adjacencies,
+        'totals': totals,
+    }
+
+
 def build_housegan(canonical: dict) -> tuple[dict, dict]:
     rooms = sorted(canonical['rooms'], key=lambda r: r['id'])
     if not rooms:
@@ -168,6 +243,8 @@ def build_housegan(canonical: dict) -> tuple[dict, dict]:
         rings.append(ring)
         loops.append(edges)
         types.append(label)
+    _check_loops(loops, nodes)
+    conversion_graph = _conversion_graph(nodes, loops, polygons, len(rooms))
     # Include door thickness in the extent so exterior doors never get clipped.
     north = float(canonical.get('site', {}).get('north_angle_deg', 0) or 0)
     if not math.isfinite(north):
@@ -198,12 +275,15 @@ def build_housegan(canonical: dict) -> tuple[dict, dict]:
     validate_integrity(data)
     return data, {
         'schema_version': 'housegan-source-mapping/1.0.0', 'building_id': canonical['building_id'],
-        'nodes': nodes, 'ignored_wall_element_ids': ignored,
+        'nodes': nodes, 'conversion_graph': conversion_graph,
+        'ignored_wall_element_ids': ignored,
         'ignored_outside_region_ids': sorted(r['id'] for r in canonical['outside_regions']),
         'transform': {'grid_size': 256, 'padding': 8, 'rotation_deg': math.degrees(angle),
                       'scale_mm_to_pixel': scale, 'offset_px': [ox, oy], 'y_axis': 'down',
                       'formula': 'rotate source by rotation_deg; x_px=x*scale+offset[0]; y_px=offset[1]-y*scale'},
-        'warnings': [f"UNKNOWN_ROOM: {n['source_id']}" for n in nodes if n['class_id'] == 16],
+        'warnings': ([f"UNKNOWN_ROOM: {n['source_id']}" for n in nodes if n['class_id'] == 16]
+                     + [f"ISOLATED_NODE: {i} {nodes[i]['source_id']}"
+                        for i in conversion_graph['totals']['isolated_node_indices']]),
     }
 
 
@@ -246,6 +326,38 @@ def validate_integrity(data: dict) -> None:
     for i, label in enumerate(data['room_type']):
         if label not in {15, 17} and not (occupancy == i+1).any():
             raise ValueError(f'HOUSEGAN_EMPTY_MASK: {i} after overlap removal')
+
+
+def adjacency_report(canonical: dict, mapping: dict) -> list[str]:
+    """Before/after adjacency lines for one converted building, for human review."""
+    elements = {element['id']: element for element in canonical['wall_elements']}
+    lines = ['before (source building.json):']
+    for relation in sorted(canonical['relations'], key=lambda item: item['wall_element_id']):
+        element = elements.get(relation['wall_element_id'], {})
+        kind = element.get('source_element_type', element.get('element_type', '?'))
+        ignored = element.get('element_type') not in {'interior_door', 'exterior_door', 'passage'}
+        target = relation['to']['face_id'] if relation['to']['kind'] == 'face' else 'outside'
+        lines.append(f"  opening {relation['wall_element_id']} {kind}{' (ignored)' if ignored else ''}: "
+                     f"{relation['from_face_id']} -> {target}")
+    rooms = sorted(canonical['rooms'], key=lambda room: room['id'])
+    polygons = [Polygon(room['polygon_mm']) for room in rooms]
+    for i in range(len(rooms)):
+        for j in range(i+1, len(rooms)):
+            pieces = _shared_boundary(polygons, i, j)
+            if pieces:
+                lines.append(f"  shared wall {rooms[i]['id']} <-> {rooms[j]['id']}: "
+                             f"{len(pieces)} piece(s), {round(sum(piece.length for piece in pieces), 3)} mm")
+    graph = mapping['conversion_graph']
+    names = {node['index']: node['source_id'] for node in mapping['nodes']}
+    lines.append('after (housegan.json):')
+    for item in graph['adjacencies']:
+        detail = f" segments={item['segments']} length_mm={item['length_mm']}" if item['kind'] == 'room-room' else ''
+        lines.append(f"  {names[item['a']]} <-> {names[item['b']]} {item['kind']}{detail}")
+    totals = graph['totals']
+    lines.append(f"totals: room_room={totals['room_room']} room_interior_door={totals['room_interior_door']} "
+                 f"room_front_door={totals['room_front_door']} max_degree={totals['max_degree']} "
+                 f"components={totals['components']} isolated={totals['isolated_node_indices']}")
+    return lines
 
 
 def write_json(path: Path, value: Any) -> None:

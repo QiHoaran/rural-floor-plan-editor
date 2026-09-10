@@ -11,13 +11,15 @@ from pathlib import Path
 from conversion_shared.discovery import BuildingSource
 from conversion_shared.records import build_records
 
-from .housegan import write_artifacts, write_json
+from .housegan import adjacency_report, write_artifacts, write_json
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--print-adjacency', action='store_true',
+                        help='Print before/after adjacency to stderr; stdout stays one line')
     args = parser.parse_args()
     try:
         source, output = args.input.resolve(), args.output.absolute()
@@ -43,6 +45,10 @@ def main() -> int:
             if output.exists() or output.is_symlink():
                 raise ValueError(f'Refusing to overwrite {output}')
             stage.rename(output)
+        if args.print_adjacency:
+            mapping = json.loads((output/'mapping.json').read_text(encoding='utf-8'))
+            for line in adjacency_report(cleaned.canonical, mapping):
+                print(line, file=sys.stderr)
         print(f'HouseGAN: {output}')
         return 0
     except (ValueError, OSError, KeyError, TypeError) as error:

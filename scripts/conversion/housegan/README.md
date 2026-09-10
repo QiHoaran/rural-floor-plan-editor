@@ -21,7 +21,7 @@ Neither entrypoint edits the source building. Both require workflow status `comp
 | --- | --- |
 | `housegan.json` | Only the four official fields: `room_type`, `boxes`, `edges`, `ed_rm` |
 | `vocabulary.json` | Fixed IDs, colors, vocabulary version and one-hot dimensions |
-| `mapping.json` | Source IDs and labels, original opening types, image transform, ignored entities and warnings |
+| `mapping.json` | Source IDs and labels, original opening types, image transform, conversion graph, ignored entities and warnings |
 | `housegan.schema.json` | JSON Schema 2020-12 for the model payload |
 | `conversion.json` | Source SHA-256/revision, repairs, converter version and artifact hashes |
 
@@ -33,6 +33,32 @@ Shared room boundaries occur in **both** owner's loops, split at partial overlap
 This is necessary because the official mask builder only uses `ed_rm[j][0]`.
 Room adjacency means positive-length shared boundary, not merely a shared corner.
 Door long sides carry their connected room index, derived from the completed opening relations.
+
+## Conversion graph
+
+`mapping.json` also carries `conversion_graph`, an explicit, human-diffable view of the same
+adjacency that `edges`/`ed_rm` encode. Node indices match `nodes`. `adjacencies` lists every
+undirected pair once: `room-room` entries carry the geometric shared-boundary piece count and
+total length in mm, `room-front-door` (class 15) and `room-interior-door` (class 17) entries
+carry the door-to-room link. An interior door therefore appears twice, once per room it serves;
+a front door appears once. `totals` gives per-kind counts, `max_degree`, connected `components`
+and `isolated_node_indices`. Outside regions never appear: they are not rooms and are only listed
+in `ignored_outside_region_ids`.
+
+The graph is derived twice — from the owner loops that become `edges`, and independently from
+the shared boundary of the room polygons. Any divergence raises `HOUSEGAN_MISSING_ADJACENCY`,
+`HOUSEGAN_SPURIOUS_ADJACENCY` or `HOUSEGAN_DUPLICATE_EDGE` rather than emitting a wrong payload.
+A node with no neighbour at all converts but is reported as an `ISOLATED_NODE` warning, because
+the payload stays valid while the editor already treats unreachable rooms as a validation error.
+Multi-branch rooms and multiple front doors are fully supported: any node may have any number of
+neighbours, and each exterior door becomes its own class-15 node with no outside room node.
+
+Print the before/after adjacency for one building (the report goes to stderr, so stdout stays a
+single line and the server adapter contract is unchanged):
+
+```powershell
+uv run conversion-housegan --input D:\data\house\building.json --output D:\output\house\HouseGAN --print-adjacency 2> adjacency.txt
+```
 
 Room outlines use the cleaned polygon, including concave shapes. A door is a rectangle
 of its opening width and host-wall thickness. All nodes use the same aspect-preserving
