@@ -40,6 +40,15 @@ interface HistoryEntry {
 }
 
 export interface EditorStore {
+  showVertices: boolean;
+  setShowVertices: (show: boolean) => void;
+  editingSuspended: boolean;
+  setEditingSuspended: (suspended: boolean) => void;
+  readOnlyPromptOpen: boolean;
+  setReadOnlyPromptOpen: (open: boolean) => void;
+  requestEdit: () => boolean;
+  loadVersion: number;
+  catalogSession: number;
   buildingDocument: BuildingDocument | null;
   changeVersion: number;
   buildingSaveStatus: BuildingSaveStatus;
@@ -57,7 +66,7 @@ export interface EditorStore {
   referenceImageLocked: boolean;
   undoStack: HistoryEntry[];
   redoStack: HistoryEntry[];
-  loadBuilding: (document: BuildingDocument) => void;
+  loadBuilding: (document: BuildingDocument, options?: { preserveCatalogSession?: boolean }) => void;
   updateBuilding: (
     update: (document: BuildingDocument) => BuildingDocument,
   ) => void;
@@ -104,6 +113,22 @@ const INITIAL_VIEWPORT: Viewport = {
 };
 
 export const useEditorStore = create<EditorStore>((set, get) => ({
+  showVertices: true,
+  setShowVertices: (showVertices) => set({ showVertices }),
+  editingSuspended: false,
+  setEditingSuspended: (editingSuspended) => set({ editingSuspended, ...(editingSuspended ? { tool: 'select' as const, commandInput: '' } : {}) }),
+  readOnlyPromptOpen: false,
+  setReadOnlyPromptOpen: (readOnlyPromptOpen) => set({ readOnlyPromptOpen }),
+  requestEdit: () => {
+    const state = get();
+    if (isCompleted(state.buildingDocument)) {
+      set({ readOnlyPromptOpen: true });
+      return false;
+    }
+    return !state.editingSuspended;
+  },
+  loadVersion: 0,
+  catalogSession: 0,
   buildingDocument: null,
   changeVersion: 0,
   buildingSaveStatus: 'saved',
@@ -120,8 +145,12 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   undoStack: [],
   redoStack: [],
 
-  loadBuilding: (document) =>
+  loadBuilding: (document, options) =>
     set((state) => ({
+      loadVersion: state.loadVersion + 1,
+      catalogSession: state.catalogSession + (options?.preserveCatalogSession ? 0 : 1),
+      editingSuspended: false,
+      readOnlyPromptOpen: false,
       buildingDocument: document,
       changeVersion: 0,
       buildingSaveStatus: 'saved',
@@ -143,6 +172,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   transact: (description, update) =>
     set((state) => {
       if (!state.buildingDocument) return state;
+      if (isCompleted(state.buildingDocument)) return { readOnlyPromptOpen: true };
+      if (state.editingSuspended) return state;
       const previous = state.buildingDocument;
       const next = update(previous);
       if (next === previous) return state;
@@ -162,6 +193,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   undo: () =>
     set((state) => {
+      if (isCompleted(state.buildingDocument)) return { readOnlyPromptOpen: true };
+      if (state.editingSuspended) return state;
       if (!state.buildingDocument || state.undoStack.length === 0) {
         return state;
       }
@@ -181,6 +214,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   redo: () =>
     set((state) => {
+      if (isCompleted(state.buildingDocument)) return { readOnlyPromptOpen: true };
+      if (state.editingSuspended) return state;
       if (!state.buildingDocument || state.redoStack.length === 0) {
         return state;
       }
@@ -198,12 +233,14 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       };
     }),
 
-  setTool: (tool) =>
+  setTool: (tool) => {
+    if (tool !== 'select' && !get().requestEdit()) return;
     set({
       tool,
       commandInput: '',
       selection: tool === 'select' ? get().selection : null,
-    }),
+    });
+  },
   setBrushFunctionCode: (brushFunctionCode) => set({ brushFunctionCode }),
   setSelection: (selection) =>
     set({ selection, multiSelection: [] }),
@@ -241,6 +278,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     let reconciled: BuildingDocument | null = null;
     set((state) => {
       if (!state.buildingDocument) return state;
+      if (document.building_id !== state.buildingDocument.building_id ||
+        (isCompleted(state.buildingDocument) && !isCompleted(document))) {
+        reconciled = state.buildingDocument;
+        return state;
+      }
       const rebase = (entry: HistoryEntry): HistoryEntry => ({
         ...entry,
         document: withServerMetadata(entry.document, document.metadata),
@@ -280,7 +322,11 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     set({ buildingSaveStatus: 'conflict', buildingSaveError: error }),
 
   closeBuilding: () =>
-    set({
+    set((state) => ({
+      loadVersion: state.loadVersion + 1,
+      catalogSession: state.catalogSession + 1,
+      editingSuspended: false,
+      readOnlyPromptOpen: false,
       buildingDocument: null,
       changeVersion: 0,
       buildingSaveStatus: 'saved',
@@ -291,12 +337,12 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       commandInput: '',
       undoStack: [],
       redoStack: [],
-    }),
+    })),
 
   // 惰性计算统计和校验（不在 transact 中同步执行，避免破坏事务引用）
   computeStats: () => {
     const doc = get().buildingDocument;
-    if (!doc) return;
+    if (!doc || isCompleted(doc) || get().editingSuspended) return;
     set({
       buildingDocument: {
         ...doc,
@@ -306,6 +352,10 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     });
   },
 }));
+
+export function isCompleted(document: BuildingDocument | null): boolean {
+  return document?.workflow.status === 'complete' || document?.metadata.status === 'complete';
+}
 
 function withServerMetadata(
   document: BuildingDocument,

@@ -18,9 +18,16 @@ export function WallLayer({
   onSelectWall,
   selectable = true,
 }: WallLayerProps) {
+  // SVG paints later siblings on top. Keep exterior walls above interior
+  // walls, including their selection outlines, regardless of insertion order.
+  const walls = Object.entries(document.walls);
+  const orderedWalls = [
+    ...walls.filter(([, wall]) => wall.wall_type !== 'exterior'),
+    ...walls.filter(([, wall]) => wall.wall_type === 'exterior'),
+  ];
   return (
     <g aria-label="墙体图层">
-      {Object.entries(document.walls).map(([wallId, wall]) => {
+      {orderedWalls.map(([wallId, wall]) => {
         const start = document.vertices[wall.start_vertex_id];
         const end = document.vertices[wall.end_vertex_id];
         if (!start || !end) return null;

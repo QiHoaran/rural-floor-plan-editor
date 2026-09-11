@@ -1,6 +1,6 @@
+import type { RoomFunctionTemplate } from '@/editor/domain/roomFunctionTemplates.ts';
 import type {
   BuildingDocument,
-  CustomFunctionType,
   HouseholdSurvey,
 } from '@/editor/domain/buildingTypes.ts';
 
@@ -74,6 +74,7 @@ export interface BulkSurveyImportResult {
 }
 
 export interface RoomFunctionTemplateInput {
+  is_builtin?: boolean;
   name: string;
   color: string;
 }
@@ -145,13 +146,13 @@ export function projectPreviewUrl(buildingId: string, revision?: number): string
   return `${base}?v=${revision}`;
 }
 
-export function listRoomFunctionTemplates(): Promise<CustomFunctionType[]> {
+export function listRoomFunctionTemplates(): Promise<RoomFunctionTemplate[]> {
   return requestJson('/api/settings/room-functions');
 }
 
 export function createRoomFunctionTemplate(
   input: RoomFunctionTemplateInput,
-): Promise<CustomFunctionType> {
+): Promise<RoomFunctionTemplate> {
   return requestJson('/api/settings/room-functions', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -162,7 +163,7 @@ export function createRoomFunctionTemplate(
 export function updateRoomFunctionTemplate(
   code: string,
   input: RoomFunctionTemplateInput,
-): Promise<CustomFunctionType> {
+): Promise<RoomFunctionTemplate> {
   return requestJson(`/api/settings/room-functions/${encodeURIComponent(code)}`, {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },

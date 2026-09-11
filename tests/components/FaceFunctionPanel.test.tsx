@@ -43,7 +43,7 @@ describe('FaceFunctionPanel', () => {
   beforeEach(() => {
     loadFace();
     vi.mocked(projectApi.listRoomFunctionTemplates).mockResolvedValue([]);
-    vi.mocked(projectApi.createRoomFunctionTemplate).mockReset();
+    vi.mocked(projectApi.createRoomFunctionTemplate).mockReset().mockImplementation(async (input) => ({ code: 'custom_recovered', ...input }));
   });
 
   it('offers only the three cold-region presets and assigns one transactionally', () => {
@@ -163,6 +163,7 @@ describe('FaceFunctionPanel', () => {
     useEditorStore.getState().setSelection({ type: 'face', id: 'face_1' });
     render(<FaceFunctionPanel faceId="face_1" />);
 
+    await waitFor(() => expect((screen.getByRole('button', { name: '添加模板并应用' }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole('button', { name: '添加模板并应用' }));
     expect(screen.getByText('名称不能为空')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('自定义功能名称'), {

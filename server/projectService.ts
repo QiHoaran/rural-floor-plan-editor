@@ -334,6 +334,7 @@ export class ProjectService {
 
     return this.withProjectLock(safeId, async () => {
       const current = (await this.open(safeId)).document;
+      assertProjectEditable(current);
       if (current.reference_image.path) {
         throw new ServiceError(
           '当前项目已有参考图，不能通过补图入口覆盖',
@@ -375,6 +376,7 @@ export class ProjectService {
     const safeId = validateBuildingId(buildingId);
     return this.withProjectLock(safeId, async () => {
       const current = (await this.open(safeId)).document;
+      assertProjectEditable(current);
       if (!current.reference_image.path) {
         throw new ServiceError(
           '当前项目没有可删除的参考图',
@@ -526,6 +528,7 @@ export class ProjectService {
           return;
         }
 
+        assertProjectEditable(current);
         const updated = applySurvey(current, survey, true);
         assertValidForOperation(updated, 'autosave');
         await atomicWriteJson(
@@ -865,6 +868,7 @@ export class ProjectService {
 
     // 乐观锁：检查 revision
     const current = await this.open(safeId);
+    assertProjectEditable(current.document);
     const serverRevision = current.document.metadata.revision;
 
     if (clientRevision !== undefined && clientRevision !== serverRevision) {
@@ -1108,6 +1112,7 @@ export class ProjectService {
       this.getRevision(safeId, revision),
       this.open(safeId),
     ]);
+    assertProjectEditable(current.document);
     const buildingDir = resolveBuildingDir(this.dataRoot, safeId);
     const restored: BuildingDocument = {
       ...document,
@@ -1661,5 +1666,11 @@ async function renderReferenceThumbnail(
       500,
       'THUMBNAIL_RENDER_FAILED',
     );
+  }
+}
+
+function assertProjectEditable(document: BuildingDocument): void {
+  if (document.workflow.status === "complete" || document.metadata.status === "complete") {
+    throw new ServiceError("项目已完成，重新打开后才能修改", 409, "PROJECT_READ_ONLY");
   }
 }

@@ -12,6 +12,7 @@ import type { SnapResult } from '@/editor/cad/snapEngine.ts';
 import { resolveWallElementPlacement } from '@/editor/domain/wallElementPlacement.ts';
 
 interface Props {
+  requestEdit?: () => boolean;
   document: BuildingDocument;
   pixelsPerMm: number;
   selectedElementId: string | null;
@@ -54,6 +55,7 @@ interface DragState {
 }
 
 export function WallElementLayer({
+  requestEdit = () => true,
   document,
   pixelsPerMm,
   selectedElementId,
@@ -134,6 +136,11 @@ export function WallElementLayer({
           event.clientY - drag.startClientY,
         );
         if (moved < 4) return;
+        if (!requestEdit()) {
+          dragRef.current = null;
+          setPreviewOffsets({});
+          return;
+        }
         const point = worldPointFromEvent(event);
         const dx = end.x_mm - start.x_mm;
         const dy = end.y_mm - start.y_mm;

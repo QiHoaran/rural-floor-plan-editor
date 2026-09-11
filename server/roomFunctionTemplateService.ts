@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { CustomFunctionType } from '../src/editor/domain/buildingTypes.js';
+import { CORE_ROOM_FUNCTION_PRESETS, normalizeFunctionName, roomFunctionCatalog, type RoomFunctionTemplate } from '../src/editor/domain/roomFunctionTemplates.js';
 import { atomicWriteJson } from './atomicWrite.js';
 import { ServiceError } from './errors.js';
 
@@ -14,15 +14,16 @@ export class RoomFunctionTemplateService {
 
   constructor(private readonly dataRoot: string) {}
 
-  list(): Promise<CustomFunctionType[]> {
+  list(): Promise<RoomFunctionTemplate[]> {
     return this.read();
   }
 
-  create(input: unknown): Promise<CustomFunctionType> {
+  create(input: unknown): Promise<RoomFunctionTemplate> {
     return this.withLock(async () => {
       const value = validateTemplateInput(input);
       const templates = await this.read();
-      assertUniqueName(templates, value.name);
+      const existing = roomFunctionCatalog(templates).find((item) => normalizeFunctionName(item.name) === normalizeFunctionName(value.name));
+      if (existing) return existing;
       const created = {
         code: `custom_${randomUUID()}`,
         ...value,
@@ -32,16 +33,21 @@ export class RoomFunctionTemplateService {
     });
   }
 
-  update(code: string, input: unknown): Promise<CustomFunctionType> {
+  update(code: string, input: unknown): Promise<RoomFunctionTemplate> {
     return this.withLock(async () => {
+      if (CORE_ROOM_FUNCTION_PRESETS.some((item) => item.code === code)) throw new ServiceError('系统内置功能不可修改', 409, 'ROOM_TEMPLATE_BUILT_IN');
       const value = validateTemplateInput(input);
       const templates = await this.read();
       const index = templates.findIndex((item) => item.code === code);
       if (index < 0) {
         throw new ServiceError('房间模板不存在', 404, 'ROOM_TEMPLATE_NOT_FOUND');
       }
-      assertUniqueName(templates, value.name, code);
-      const updated = { code, ...value };
+      const existing = roomFunctionCatalog(templates).find((item) => item.code !== code && normalizeFunctionName(item.name) === normalizeFunctionName(value.name));
+      if (existing) {
+        await this.write(templates.filter((item) => item.code !== code));
+        return existing;
+      }
+      const updated = { ...templates[index], code, ...value };
       const next = [...templates];
       next[index] = updated;
       await this.write(next);
@@ -52,6 +58,7 @@ export class RoomFunctionTemplateService {
   delete(code: string): Promise<void> {
     return this.withLock(async () => {
       const templates = await this.read();
+      if (CORE_ROOM_FUNCTION_PRESETS.some((item) => item.code === code) || templates.find((item) => item.code === code)?.is_builtin) throw new ServiceError('内置功能不可删除，请先取消内置', 409, 'ROOM_TEMPLATE_BUILT_IN');
       if (!templates.some((item) => item.code === code)) {
         throw new ServiceError('房间模板不存在', 404, 'ROOM_TEMPLATE_NOT_FOUND');
       }
@@ -59,12 +66,12 @@ export class RoomFunctionTemplateService {
     });
   }
 
-  private async read(): Promise<CustomFunctionType[]> {
+  private async read(): Promise<RoomFunctionTemplate[]> {
     try {
       const parsed = JSON.parse(await fs.readFile(this.filePath, 'utf8')) as unknown;
       if (!Array.isArray(parsed)) throw new Error('templates must be an array');
-      return parsed.map((item) => {
-        const value = item as CustomFunctionType;
+      const entries = parsed.map((item) => {
+        const value = item as RoomFunctionTemplate;
         if (
           typeof value.code !== 'string' ||
           !value.code.startsWith('custom_')
@@ -73,6 +80,7 @@ export class RoomFunctionTemplateService {
         }
         return { code: value.code, ...validateTemplateInput(value) };
       });
+      return roomFunctionCatalog(entries).filter((item) => !CORE_ROOM_FUNCTION_PRESETS.some((preset) => preset.code === item.code));
     } catch (error) {
       if (isNodeError(error) && error.code === 'ENOENT') return [];
       throw new ServiceError(
@@ -83,7 +91,7 @@ export class RoomFunctionTemplateService {
     }
   }
 
-  private write(templates: CustomFunctionType[]): Promise<void> {
+  private write(templates: RoomFunctionTemplate[]): Promise<void> {
     return atomicWriteJson(this.filePath, templates);
   }
 
@@ -104,8 +112,8 @@ export class RoomFunctionTemplateService {
   }
 }
 
-function validateTemplateInput(input: unknown): { name: string; color: string } {
-  const value = input as { name?: unknown; color?: unknown } | null;
+function validateTemplateInput(input: unknown): { name: string; color: string; is_builtin?: boolean } {
+  const value = input as { name?: unknown; color?: unknown; is_builtin?: unknown } | null;
   const name = typeof value?.name === 'string' ? value.name.trim() : '';
   const color = typeof value?.color === 'string' ? value.color.trim() : '';
   if (!name || name.length > 30) {
@@ -122,21 +130,8 @@ function validateTemplateInput(input: unknown): { name: string; color: string } 
       'INVALID_ROOM_TEMPLATE_COLOR',
     );
   }
-  return { name, color: color.toLowerCase() };
-}
-
-function assertUniqueName(
-  templates: CustomFunctionType[],
-  name: string,
-  exceptCode?: string,
-): void {
-  if (
-    templates.some(
-      (item) => item.code !== exceptCode && item.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
-    )
-  ) {
-    throw new ServiceError('模板名称已存在', 409, 'ROOM_TEMPLATE_NAME_EXISTS');
-  }
+  if (value?.is_builtin !== undefined && typeof value.is_builtin !== 'boolean') throw new ServiceError('内置标记必须为布尔值', 400, 'INVALID_ROOM_TEMPLATE_BUILT_IN');
+  return { name, color: color.toLowerCase(), ...(value?.is_builtin !== undefined ? { is_builtin: value.is_builtin as boolean } : {}) };
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

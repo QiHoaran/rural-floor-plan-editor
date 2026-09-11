@@ -17,7 +17,6 @@ import {
   submitReview,
   reviewProject,
   completeProject,
-  reopenProject,
   openProjectFolder,
   ApiError,
 } from '@/api/projectApi.ts';
@@ -30,6 +29,9 @@ import {
 import { BuildingTemplateDialog } from '@/editor/dialogs/BuildingTemplateDialog.tsx';
 import { uploadReferenceImageFile } from '@/projects/imageFile.ts';
 import styles from './EditorLayout.module.css';
+import { ReadOnlyDialog } from './dialogs/ReadOnlyDialog.tsx';
+import { EditGuard } from './panels/EditGuard.tsx';
+import { useRoomFunctionCatalogSync } from './hooks/useRoomFunctionTemplates.ts';
 
 interface EditorLayoutProps {
   onBack?: () => void;
@@ -39,6 +41,9 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
   const buildingDocument = useEditorStore(
     (state) => state.buildingDocument,
   );
+  useRoomFunctionCatalogSync();
+  const showVertices = useEditorStore((state) => state.showVertices);
+  const requestEdit = useEditorStore((state) => state.requestEdit);
   const changeVersion = useEditorStore((state) => state.changeVersion);
   const saveStatus = useEditorStore(
     (state) => state.buildingSaveStatus,
@@ -100,6 +105,8 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
       ) {
         return;
       }
+
+      if (useEditorStore.getState().readOnlyPromptOpen) return;
 
       // 快捷键只在非输入框时生效
       const doc = useEditorStore.getState().buildingDocument;
@@ -174,7 +181,7 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
       const current = useEditorStore.getState().buildingDocument;
       if (!current) return;
       const doc = await submitReview(current.building_id, current);
-      useEditorStore.getState().loadBuilding(doc);
+      useEditorStore.getState().loadBuilding(doc, { preserveCatalogSession: true });
       setWorkflowError(null);
     } catch (err) {
       setWorkflowError(err instanceof Error ? err.message : '提交审核失败');
@@ -190,7 +197,7 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
       const current = useEditorStore.getState().buildingDocument;
       if (!current) return;
       const doc = await reviewProject(current.building_id, current);
-      useEditorStore.getState().loadBuilding(doc);
+      useEditorStore.getState().loadBuilding(doc, { preserveCatalogSession: true });
       setWorkflowError(null);
     } catch (err) {
       setWorkflowError(err instanceof Error ? err.message : '审核操作失败');
@@ -209,27 +216,19 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
       return;
     }
     setDeliveryBusy(true);
+    useEditorStore.getState().setEditingSuspended(true);
     try {
+      await flushAutoSave();
       const current = useEditorStore.getState().buildingDocument;
       if (!current) return;
       const doc = await completeProject(current.building_id, current);
-      useEditorStore.getState().loadBuilding(doc);
+      useEditorStore.getState().loadBuilding(doc, { preserveCatalogSession: true });
       setWorkflowError(null);
     } catch (err) {
       setWorkflowError(err instanceof Error ? err.message : '无法完成项目');
     } finally {
       setDeliveryBusy(false);
-    }
-  };
-
-  const handleReopen = async () => {
-    if (!confirm('重新打开后可以继续编辑，确认吗？')) return;
-    try {
-      const doc = await reopenProject(buildingDocument.building_id);
-      useEditorStore.getState().loadBuilding(doc);
-      setWorkflowError(null);
-    } catch (err) {
-      setWorkflowError(err instanceof Error ? err.message : '重新打开失败');
+      useEditorStore.getState().setEditingSuspended(false);
     }
   };
 
@@ -262,6 +261,7 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
     event.preventDefault();
     event.stopPropagation();
     imageDragDepth.current = 0;
+    if (!requestEdit()) return;
     if (imageDrop?.status === 'busy') return;
     if (buildingDocument.reference_image.path) {
       setImageDrop({ status: 'error', message: '当前项目已有参考图，不能覆盖' });
@@ -303,6 +303,7 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
   };
 
   const handleApplyTemplate = (input: BuildingTemplateInput) => {
+    if (!requestEdit()) return;
     const current = useEditorStore.getState().buildingDocument;
     if (!current) return;
     const hasGeometry =
@@ -405,14 +406,20 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
         <button
           className={styles.headerBtnSecondary}
           onClick={() => {
+            if (!requestEdit()) return;
             setTemplateError('');
             setTemplateOpen(true);
           }}
-          disabled={isReadOnly}
           title="按正房开间、正房面宽和房间数生成墙体草图"
         >
           ▦ 建筑模板
         </button>
+
+        <label className={styles.vertexToggle}>
+          <input type="checkbox" aria-label="显示点" checked={showVertices}
+            onChange={(event) => useEditorStore.getState().setShowVertices(event.target.checked)} />
+          显示点
+        </label>
 
         {/* 工作流按钮 */}
         <div className={styles.workflowGroup}>
@@ -448,7 +455,7 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
           {workflowStatus === 'complete' && (
             <button
               className={styles.headerBtnSecondary}
-              onClick={handleReopen}
+              onClick={() => useEditorStore.getState().setReadOnlyPromptOpen(true)}
               disabled={deliveryBusy}
             >
               🔓 重新打开
@@ -569,8 +576,8 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
             </button>
           </div>
           <div className={styles.panelContent}>
-            {rightPanel === 'property' && <EditablePropertyPanel />}
-            {rightPanel === 'label' && <RoomLabelPanel />}
+            {rightPanel === 'property' && <EditGuard><EditablePropertyPanel /></EditGuard>}
+            {rightPanel === 'label' && <EditGuard><RoomLabelPanel /></EditGuard>}
             {rightPanel === 'quality' && <DataQualityPanel />}
           </div>
         </div>
@@ -583,6 +590,7 @@ export function EditorLayout({ onBack }: EditorLayoutProps) {
           {imageDrop.message}
         </div>
       )}
+      <ReadOnlyDialog />
       <BuildingTemplateDialog
         open={templateOpen}
         error={templateError}

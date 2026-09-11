@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   assignFaceFunction,
-  RURAL_FACE_FUNCTION_PRESETS,
   type FaceFunctionType,
 } from '@/editor/domain/faceFunctions.ts';
 import { markFaceAsOutside } from '@/editor/topology/outsideRegions.ts';
 import { useEditorStore } from '@/editor/store/editorStore.ts';
 import {
   ensureRoomFunctionSnapshot,
-  mergeRoomFunctionTypes,
+  roomFunctionCatalog,
 } from '@/editor/domain/roomFunctionTemplates.ts';
 import { ROOM_FUNCTION_DICTIONARY } from '@/editor/domain/constants.ts';
 import { useRoomFunctionTemplates } from '@/editor/hooks/useRoomFunctionTemplates.ts';
@@ -58,11 +57,7 @@ export function FaceFunctionPanel({ faceId }: { faceId: string }) {
   }, [face?.local_name, face?.notes, faceId]);
 
   if (!face) return null;
-  const functionTypes: FaceFunctionType[] = mergeRoomFunctionTypes(
-    RURAL_FACE_FUNCTION_PRESETS,
-    templateState.templates,
-    document.custom_function_types,
-  );
+  const functionTypes: FaceFunctionType[] = roomFunctionCatalog(templateState.templates);
   const historicalFunction = face.function_code &&
     !functionTypes.some((item) => item.code === face.function_code)
     ? {
@@ -107,6 +102,7 @@ export function FaceFunctionPanel({ faceId }: { faceId: string }) {
   };
 
   const addCustom = async () => {
+    if (!useEditorStore.getState().requestEdit()) return;
     if (!customName.trim()) {
       setError('名称不能为空');
       return;
@@ -243,7 +239,7 @@ export function FaceFunctionPanel({ faceId }: { faceId: string }) {
             onChange={(event) => setCustomColor(event.target.value)}
           />
         </label>
-        <button type="button" disabled={templateBusy} onClick={() => void addCustom()}>
+        <button type="button" disabled={templateBusy || templateState.loading} onClick={() => void addCustom()}>
           {templateBusy ? '正在添加…' : '添加模板并应用'}
         </button>
         {error && <div className={styles.error}>{error}</div>}

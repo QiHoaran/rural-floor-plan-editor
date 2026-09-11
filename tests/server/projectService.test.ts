@@ -118,6 +118,7 @@ describe('ProjectService', () => {
         heightPx: 100,
       },
     });
+    const saved = await service.autosave('house_0001', created);
     const buildingDir = path.join(dataRoot, 'house_0001');
     await fs.writeFile(
       path.join(buildingDir, 'building.json'),
@@ -126,8 +127,6 @@ describe('ProjectService', () => {
         metadata: { ...created.metadata, revision: 0, status: 'complete' },
       }),
     );
-    const saved = await service.autosave('house_0001', created);
-
     const opened = await service.open('house_0001');
 
     expect(opened.recovered_from_draft).toBe(true);

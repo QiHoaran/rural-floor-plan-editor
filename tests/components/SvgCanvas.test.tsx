@@ -53,6 +53,20 @@ describe('SvgCanvas', () => {
     );
   });
 
+  it('hides vertex visuals and hit targets except the selected wall endpoints', () => {
+    useEditorStore.getState().setShowVertices(false);
+    const before = useEditorStore.getState().buildingDocument;
+    render(<SvgCanvas autoFitReference={false} />);
+    expect(screen.queryByTestId('vertex-hit-v_1')).toBeNull();
+    act(() => useEditorStore.getState().setSelection({ type: 'wall', id: 'w_1' }));
+    expect(screen.getByTestId('vertex-hit-v_1')).toBeTruthy();
+    expect(screen.getByTestId('vertex-visual-v_2').tagName).toBe('rect');
+    act(() => useEditorStore.getState().setSelection(null));
+    expect(screen.queryByTestId('vertex-visual-v_2')).toBeNull();
+    expect(useEditorStore.getState().buildingDocument).toBe(before);
+    act(() => useEditorStore.getState().setShowVertices(true));
+  });
+
   it('fits a newly imported reference image without changing its transform', async () => {
     const document = useEditorStore.getState().buildingDocument!;
     document.reference_image.width_px = 1000;

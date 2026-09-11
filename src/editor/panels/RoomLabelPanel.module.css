@@ -143,7 +143,7 @@
 
 .templateItem {
   display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto auto;
+  grid-template-columns: 12px minmax(0, 1fr);
   align-items: center;
   gap: 6px;
   font-size: 12px;
@@ -180,4 +180,11 @@
 .actionBtn:hover {
   background: #f1f5f9;
   border-color: #94a3b8;
+}
+
+.templateActions {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }

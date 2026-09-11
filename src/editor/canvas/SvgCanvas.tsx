@@ -42,6 +42,8 @@ import {
 } from './layers/ReferenceImageLayer.tsx';
 import { FaceLayer } from './layers/FaceLayer.tsx';
 import { WallElementLayer } from './layers/WallElementLayer.tsx';
+import { useRoomFunctionCatalog } from '@/editor/hooks/useRoomFunctionTemplates.ts';
+import { roomFunctionCatalog } from '@/editor/domain/roomFunctionTemplates.ts';
 import { VertexLayer } from './layers/VertexLayer.tsx';
 import {
   placeWallElement,
@@ -59,10 +61,6 @@ import {
 import styles from './SvgCanvas.module.css';
 import { ROOM_FUNCTION_DICTIONARY } from '@/editor/domain/constants.ts';
 import { resolveWallElementPlacement } from '@/editor/domain/wallElementPlacement.ts';
-import {
-  CORE_ROOM_FUNCTION_PRESETS,
-  mergeRoomFunctionTypes,
-} from '@/editor/domain/roomFunctionTemplates.ts';
 
 const DEFAULT_SIZE: CanvasSize = { width: 800, height: 600 };
 
@@ -75,6 +73,12 @@ export function SvgCanvas({
   handleHistoryShortcuts = true,
   autoFitReference = true,
 }: SvgCanvasProps = {}) {
+  const multiSelection = useEditorStore((state) => state.multiSelection);
+  const catalogTemplates = useRoomFunctionCatalog((state) => state.templates);
+  const showVertices = useEditorStore((state) => state.showVertices);
+  const editingSuspended = useEditorStore((state) => state.editingSuspended);
+  const loadVersion = useEditorStore((state) => state.loadVersion);
+  const requestEdit = useEditorStore((state) => state.requestEdit);
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState(DEFAULT_SIZE);
   const [sizeReady, setSizeReady] = useState(false);
@@ -178,7 +182,7 @@ export function SvgCanvas({
     vertexDrag.current = null;
     setReferencePreview(null);
     setVertexDragPreview(null);
-  }, [tool]);
+  }, [tool, editingSuspended, loadVersion]);
 
   useEffect(() => {
     setCurrentSnap({ kind: 'none' });
@@ -203,6 +207,7 @@ export function SvgCanvas({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (useEditorStore.getState().readOnlyPromptOpen) return;
       const target = event.target as HTMLElement | null;
       if (
         target &&
@@ -224,6 +229,7 @@ export function SvgCanvas({
         return;
       }
       if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (!useEditorStore.getState().requestEdit()) { event.preventDefault(); return; }
         const state = useEditorStore.getState();
         const sel = state.selection;
         const currentDoc = state.buildingDocument;
@@ -571,9 +577,9 @@ export function SvgCanvas({
       originalPoint: { ...vertex },
       currentPoint: { ...vertex },
     };
-    setVertexDragPreview({ ...vertex });
+    if (document.workflow.status !== 'complete' && !editingSuspended) setVertexDragPreview({ ...vertex });
     // Capture pointer on the container so we receive move/up events
-    // even when the cursor leaves the vertex hit circle.
+    // even when the cursor leaves the vertex hit target.
     const svg = containerRef.current?.querySelector('svg');
     if (svg) svg.setPointerCapture(pointerId);
   };
@@ -583,6 +589,7 @@ export function SvgCanvas({
     pointerId: number,
     event: ReactPointerEvent<SVGRectElement>,
   ) => {
+    if (!requestEdit()) return;
     const image = document.reference_image;
     const width = image.width_px;
     const height = image.height_px;
@@ -625,6 +632,7 @@ export function SvgCanvas({
       event.currentTarget.setPointerCapture?.(event.pointerId);
       return;
     }
+    if (tool !== 'select' && !requestEdit()) return;
     if (!isWallTool(tool)) {
       if (isWallElementTool(tool)) {
         const resolved = wallElementPlacementAt(
@@ -725,6 +733,11 @@ export function SvgCanvas({
     }
     if (vertexDrag.current) {
       if (event.pointerId !== vertexDrag.current.pointerId) return;
+      if (!requestEdit()) {
+        vertexDrag.current = null;
+        setVertexDragPreview(null);
+        return;
+      }
       const worldPoint = eventWorldPoint(event.nativeEvent);
       const exclude = new Set([vertexDrag.current.vertexId]);
       const snapped = snapPoint(worldPoint, exclude);
@@ -911,10 +924,7 @@ export function SvgCanvas({
               if (tool === 'select') {
                 setSelection({ type: 'face', id: faceId });
               } else if (tool === 'room_label_brush') {
-                const functionType = mergeRoomFunctionTypes(
-                  CORE_ROOM_FUNCTION_PRESETS,
-                  document.custom_function_types,
-                ).find((item) => item.code === brushFunctionCode);
+                const functionType = roomFunctionCatalog(catalogTemplates).find((item) => item.code === brushFunctionCode);
                 if (!functionType) return;
                 const residential = ROOM_FUNCTION_DICTIONARY.find(
                   (item) => item.code === brushFunctionCode,
@@ -950,6 +960,8 @@ export function SvgCanvas({
             }}
           />
           <WallElementLayer
+            key={`${loadVersion}-${editingSuspended}`}
+            requestEdit={requestEdit}
             document={document}
             pixelsPerMm={viewport.pixelsPerMm}
             selectedElementId={
@@ -982,6 +994,11 @@ export function SvgCanvas({
             onSnapChange={setCurrentSnap}
           />
           <VertexLayer
+            visibleVertexIds={showVertices ? undefined : new Set(
+              multiSelection.length === 0 && selection?.type === 'wall' && document.walls[selection.id]
+                ? [document.walls[selection.id].start_vertex_id, document.walls[selection.id].end_vertex_id]
+                : [],
+            )}
             document={document}
             pixelsPerMm={viewport.pixelsPerMm}
             selectedVertexId={

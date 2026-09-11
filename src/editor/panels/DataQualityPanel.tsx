@@ -127,8 +127,8 @@ export function DataQualityPanel() {
   const issueItem = (issue: ValidationIssue) => <Fragment key={issue.id}>
     <IssueItem issue={issue} onClick={() => handleClickIssue(issue)} active={selection?.id === issue.entity_id && selection?.type === issue.entity_type} />
     {issue.code === 'WALL_NOT_AXIS_ALIGNED' && issue.entity_id && <button className={styles.repairButton}
-      aria-label={`正交修复 ${issue.entity_id}`} disabled={document.workflow.status === 'complete'}
-      onClick={() => { handleClickIssue(issue); setRepair({ source: document, wallId: issue.entity_id! }); }}>正交修复</button>}
+      aria-label={`正交修复 ${issue.entity_id}`}
+      onClick={() => { if (!useEditorStore.getState().requestEdit()) return; handleClickIssue(issue); setRepair({ source: document, wallId: issue.entity_id! }); }}>正交修复</button>}
   </Fragment>;
 
   return (

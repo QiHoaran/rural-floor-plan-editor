@@ -10,7 +10,7 @@ import {
 import {
   CORE_ROOM_FUNCTION_PRESETS,
   ensureRoomFunctionSnapshot,
-  mergeRoomFunctionTypes,
+  roomFunctionCatalog,
 } from '@/editor/domain/roomFunctionTemplates.ts';
 import { useRoomFunctionTemplates } from '@/editor/hooks/useRoomFunctionTemplates.ts';
 import { getNextUnlabeledFaceId } from '@/editor/domain/buildingStatistics.ts';
@@ -33,12 +33,8 @@ export function RoomLabelPanel() {
   const [templateBusy, setTemplateBusy] = useState(false);
 
   const functionTypes = useMemo(
-    () => mergeRoomFunctionTypes(
-      CORE_ROOM_FUNCTION_PRESETS,
-      templateState.templates,
-      document?.custom_function_types ?? [],
-    ),
-    [document?.custom_function_types, templateState.templates],
+    () => roomFunctionCatalog(templateState.templates),
+    [templateState.templates],
   );
 
   // 当前选中面（hooks 必须在条件判断之前）
@@ -131,7 +127,7 @@ export function RoomLabelPanel() {
   };
 
   const saveTemplate = async () => {
-    if (templateBusy) return;
+    if (templateBusy || !useEditorStore.getState().requestEdit()) return;
     setTemplateBusy(true);
     try {
       if (editingCode) {
@@ -341,7 +337,7 @@ export function RoomLabelPanel() {
             value={templateColor}
             onChange={(event) => setTemplateColor(event.target.value)}
           />
-          <button type="button" disabled={templateBusy} onClick={() => void saveTemplate()}>
+          <button type="button" disabled={templateBusy || templateState.loading} onClick={() => void saveTemplate()}>
             {editingCode ? '保存模板' : '添加模板'}
           </button>
           {editingCode && <button type="button" onClick={resetTemplateForm}>取消</button>}
@@ -351,12 +347,18 @@ export function RoomLabelPanel() {
             <div key={template.code} className={styles.templateItem}>
               <span className={styles.colorDot} style={{ background: template.color }} />
               <span>{template.name}</span>
+              <div className={styles.templateActions}>
               <button type="button" aria-label={`编辑模板 ${template.name}`} onClick={() => {
                 setEditingCode(template.code);
                 setTemplateName(template.name);
                 setTemplateColor(template.color);
               }}>编辑</button>
-              <button type="button" aria-label={`删除模板 ${template.name}`} onClick={async () => {
+              <button type="button" aria-label={`${template.is_builtin ? "取消内置" : "设为内置"} ${template.name}`} onClick={async () => {
+                try { await templateState.updateTemplate(template.code, template.name, template.color, !template.is_builtin); }
+                catch (reason) { templateState.setError(reason instanceof Error ? reason.message : "操作失败"); }
+              }}>{template.is_builtin ? "取消内置" : "设为内置"}</button>
+              {!template.is_builtin && <button type="button" aria-label={`删除模板 ${template.name}`} onClick={async () => {
+                if (!useEditorStore.getState().requestEdit()) return;
                 if (!confirm(`删除全项目模板“${template.name}”？已有建筑标注会继续保留。`)) return;
                 try {
                   await templateState.deleteTemplate(template.code);
@@ -364,7 +366,8 @@ export function RoomLabelPanel() {
                 } catch (reason) {
                   templateState.setError(reason instanceof Error ? reason.message : '模板删除失败');
                 }
-              }}>删除</button>
+              }}>删除</button>}
+              </div>
             </div>
           ))}
         </div>
@@ -377,12 +380,14 @@ export function RoomLabelPanel() {
         <div className={styles.actions}>
           <button
             className={styles.actionBtn}
+            data-readonly-view
             onClick={jumpToNextUnlabeled}
           >
             ▶ 下一个未标注 (Tab)
           </button>
           <button
             className={styles.actionBtn}
+            data-readonly-view
             onClick={jumpToPrevUnlabeled}
           >
             ◀ 上一个未标注 (Shift+Tab)

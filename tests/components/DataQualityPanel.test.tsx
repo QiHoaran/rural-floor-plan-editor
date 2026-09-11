@@ -56,7 +56,9 @@ describe('DataQualityPanel', () => {
     act(() => useEditorStore.getState().updateBuilding(current => ({ ...current })));
     expect(screen.getByRole('button', { name: '应用修复' })).toBeDisabled();
     act(() => useEditorStore.getState().loadBuilding({ ...doc, workflow: { ...doc.workflow, status: 'complete' } }));
-    expect(screen.getAllByRole('button', { name: '正交修复 ab' })[0]).toBeDisabled();
+    fireEvent.click(screen.getAllByRole('button', { name: '正交修复 ab' })[0]);
+    expect(useEditorStore.getState().readOnlyPromptOpen).toBe(true);
+    expect(useEditorStore.getState().buildingDocument?.workflow.status).toBe('complete');
   });
   it('shows bay and detected face counts together with the repair suggestion', () => {
     const document = createEmptyBuilding('quality', '');
