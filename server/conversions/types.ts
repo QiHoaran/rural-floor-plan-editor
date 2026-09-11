@@ -1,12 +1,14 @@
 export interface FormatDescriptor {
-  id: string; label: string; directory: string; version: string;
+  // Mirrors adapter.py's needs_cleaned: when true the converter runs the shared cleaner
+  // first, and the editor marks the format with a broom icon.
+  id: string; label: string; directory: string; version: string; usesClean: boolean;
 }
 export const FORMATS: FormatDescriptor[] = [
-  {id:'graph', label:'Graph', directory:'Graph', version:'1.0.0'},
-  {id:'image', label:'Image', directory:'Image', version:'1.0.0'},
-  {id:'cad', label:'CAD', directory:'CAD', version:'1.0.0'},
-  {id:'embodied', label:'Embodied', directory:'Embodied', version:'1.0.0'},
-  {id:'housegan', label:'HouseGAN', directory:'HouseGAN', version:'1.0.0'},
+  {id:'graph', label:'Graph', directory:'Graph', version:'1.0.0', usesClean:true},
+  {id:'image', label:'Image', directory:'Image', version:'1.0.0', usesClean:true},
+  {id:'cad', label:'CAD', directory:'CAD', version:'1.0.0', usesClean:true},
+  {id:'embodied', label:'Embodied', directory:'Embodied', version:'1.0.0', usesClean:false},
+  {id:'housegan', label:'HouseGAN', directory:'HouseGAN', version:'1.0.0', usesClean:true},
 ];
 export interface ConversionInput {
   projects: {buildingId: string; revision: number}[];

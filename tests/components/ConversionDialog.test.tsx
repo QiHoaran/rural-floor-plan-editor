@@ -12,11 +12,11 @@ const projects = [
   { building_id: 'rural_001_house_0002', revision: 2, status: 'draft' },
 ] as ProjectSummary[];
 const formats = [
-  { id: 'graph', label: 'Graph', directory: 'Graph', version: '1', available: true },
-  { id: 'image', label: 'Image', directory: 'Image', version: '1', available: true },
-  { id: 'cad', label: 'CAD', directory: 'CAD', version: '1', available: true },
-  { id: 'embodied', label: 'Embodied', directory: 'Embodied', version: '1', available: true },
-  { id: 'housegan', label: 'HouseGAN', directory: 'HouseGAN', version: '1', available: true },
+  { id: 'graph', label: 'Graph', directory: 'Graph', version: '1', usesClean: true, available: true },
+  { id: 'image', label: 'Image', directory: 'Image', version: '1', usesClean: true, available: true },
+  { id: 'cad', label: 'CAD', directory: 'CAD', version: '1', usesClean: true, available: true },
+  { id: 'embodied', label: 'Embodied', directory: 'Embodied', version: '1', usesClean: false, available: true },
+  { id: 'housegan', label: 'HouseGAN', directory: 'HouseGAN', version: '1', usesClean: true, available: true },
 ];
 const queued: api.ConversionJob = { id: 'job1', status: 'queued', outputRoot: 'D:\\转换 结果', items: [{ buildingId: projects[0].building_id, format: 'graph', status: 'queued' }] };
 describe('ConversionDialog', () => {
@@ -108,6 +108,20 @@ describe('ConversionDialog', () => {
     render(<ConversionDialog projects={projects} onClose={vi.fn()} />);
     expect(await screen.findByLabelText('Graph（不可用：请安装 Python 环境）')).toBeDisabled();
     expect(screen.getByText('开始转换')).toBeDisabled();
+  });
+  it('marks the formats whose converter cleans first with a broom before the label', async () => {
+    render(<ConversionDialog projects={projects} onClose={vi.fn()} />);
+    await screen.findByLabelText('Graph');
+    for (const format of formats) {
+      const label = screen.getByLabelText(format.label).closest('label');
+      if (format.usesClean) expect(label?.previousElementSibling).toHaveTextContent('🧹');
+      else expect(label?.previousElementSibling).toBeNull();
+    }
+    expect(screen.getByLabelText('Graph').closest('label')).toHaveAttribute('title', '转换前先执行清洗（clean）');
+  });
+  it('derives the output hint from the registered formats', async () => {
+    render(<ConversionDialog projects={projects} onClose={vi.fn()} />);
+    expect(await screen.findByText('保存为：指定文件夹 / 建筑编号 / Graph、Image、CAD、Embodied、HouseGAN。禁止写入 data 目录。')).toBeTruthy();
   });
   it('submits HouseGAN on its own', async () => {
     render(<ConversionDialog projects={projects} onClose={vi.fn()} />);

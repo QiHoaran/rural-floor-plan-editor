@@ -4,6 +4,12 @@ import { getConversion, listConversionFormats, openConversionFolder, recoverConv
 import styles from './ProjectHome.module.css';
 import { CONVERSION_JOB_KEY, CONVERSION_PATH_KEY, readSavedJob, readConversionPath } from './conversionStorage.ts';
 const statuses = { queued: '等待中', running: '转换中', succeeded: '成功', skipped: '已跳过', quarantined: '已隔离', failed: '失败' };
+const cleanHint = '转换前先执行清洗（clean）';
+// Decorative broom for formats whose converter cleans the source first; the meaning is also
+// exposed to assistive technology through the label title.
+function CleanMark({ usesClean }: { usesClean?: boolean }) {
+  return usesClean ? <span className={styles.conversionCleanMark} title={cleanHint} aria-hidden="true">🧹</span> : null;
+}
 
 export function ConversionDialog({ projects, onClose }: { projects: ProjectSummary[]; onClose: () => void }) {
   const [formats, setFormats] = useState<ConversionFormat[]>([]);
@@ -97,13 +103,16 @@ export function ConversionDialog({ projects, onClose }: { projects: ProjectSumma
         <p>已选 {projects.length} 栋，可转换 {eligible.length} 栋；跳过 {projects.length - eligible.length} 栋未完成项目。</p>
         <fieldset disabled={busy || loading} className={styles.conversionFormats}><legend>目标格式</legend>
           {loading && <p>正在检查转换环境…</p>}
-          {formats.map(format => <label key={format.id} title={format.reason}>
-            <input type="checkbox" checked={selected.includes(format.id)} disabled={!format.available} onChange={event => setSelected(current => event.target.checked ? [...current, format.id] : current.filter(id => id !== format.id))} />
-            <span>{format.label}{!format.available && `（不可用：${format.reason ?? '环境未配置'}）`}</span>
-          </label>)}
+          {formats.map(format => <span key={format.id} className={styles.conversionOption}>
+            <CleanMark usesClean={format.usesClean} />
+            <label title={[format.usesClean ? cleanHint : '', format.reason ?? ''].filter(Boolean).join('；') || undefined}>
+              <input type="checkbox" checked={selected.includes(format.id)} disabled={!format.available} onChange={event => setSelected(current => event.target.checked ? [...current, format.id] : current.filter(id => id !== format.id))} />
+              <span>{format.label}{!format.available && `（不可用：${format.reason ?? '环境未配置'}）`}</span>
+            </label>
+          </span>)}
         </fieldset>
         <label>输出文件夹（服务器本机绝对路径）<input aria-label="输出文件夹" value={outputRoot} disabled={busy} onChange={event => setOutputRoot(event.target.value)} placeholder="例如 D:\\转换结果" /></label>
-        <p className={styles.dialogHint}>保存为：指定文件夹 / 建筑编号 / Graph、Image、CAD、Embodied。禁止写入 data 目录。</p>
+        <p className={styles.dialogHint}>保存为：指定文件夹 / 建筑编号{formats.length ? ` / ${formats.map(format => format.directory).join('、')}` : ''}。禁止写入 data 目录。</p>
         <label className={styles.conversionCheckbox}><input type="checkbox" checked={overwrite} disabled={busy} onChange={event => setOverwrite(event.target.checked)} />覆盖已有结果</label>
         <p className={styles.dialogHint}>默认跳过已有格式目录。覆盖时仅替换本次选中的格式。</p>
       </>}
@@ -113,7 +122,10 @@ export function ConversionDialog({ projects, onClose }: { projects: ProjectSumma
         <p className={styles.conversionPath}>输出文件夹：{job.outputRoot}</p>
         {job.message && <p>{job.message}</p>}
         <div className={styles.conversionResults}><table><thead><tr><th>建筑</th><th>格式</th><th>状态 / 原因</th></tr></thead><tbody>
-          {job.items.map(item => <tr key={`${item.buildingId}:${item.format}`}><td>{item.buildingId}</td><td>{formats.find(format => format.id === item.format)?.label ?? item.format}</td><td>{statuses[item.status]}{item.message && `：${item.message}`}</td></tr>)}
+          {job.items.map(item => {
+            const format = formats.find(candidate => candidate.id === item.format);
+            return <tr key={`${item.buildingId}:${item.format}`}><td>{item.buildingId}</td><td><CleanMark usesClean={format?.usesClean} />{format?.label ?? item.format}</td><td>{statuses[item.status]}{item.message && `：${item.message}`}</td></tr>;
+          })}
         </tbody></table></div>
       </>}
       {error && <p role="alert" className={styles.error}>{error}</p>}

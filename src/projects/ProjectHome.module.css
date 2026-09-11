@@ -577,6 +577,8 @@
 .conversionButton { align-self: center; padding: 6px 4px; width: 42px; flex-shrink: 0; border: none; background: transparent; color: #1d4ed8; cursor: pointer; font-size: 11px; }
 .conversionButton:disabled { color: #94a3b8; cursor: not-allowed; }
 .conversionFormats { display: flex; flex-wrap: wrap; gap: 12px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px; }
+.conversionOption { display: flex; align-items: center; gap: 4px; }
+.conversionCleanMark { font-size: 13px; line-height: 1; }
 .dialog .conversionFormats label, .dialog .conversionCheckbox { display: flex; align-items: center; gap: 6px; }
 .dialog .conversionFormats input, .dialog .conversionCheckbox input { min-height: auto; }
 .conversionPath { overflow-wrap: anywhere; }

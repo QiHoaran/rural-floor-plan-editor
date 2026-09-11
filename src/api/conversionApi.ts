@@ -5,6 +5,8 @@ export interface ConversionFormat {
   label: string;
   directory: string;
   version: string;
+  /** The converter cleans the source first; the editor shows a broom icon for it. */
+  usesClean: boolean;
   available: boolean;
   reason?: string;
 }
