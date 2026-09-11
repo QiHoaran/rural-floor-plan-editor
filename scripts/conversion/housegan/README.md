@@ -91,6 +91,26 @@ sunroom semantics**. Add `sunroom: 18` to upstream `ROOM_CLASS` and color 18 to 
 (from `vocabulary.json`), rebuild reverse mappings, and retrain or fine-tune for this vocabulary.
 This repository does not run training or inference.
 
+### HouseDiffusion compatibility
+
+The same four-field JSON and owner-first edge loops can also be consumed by
+HouseDiffusion. Keep the shared payload and vocabulary unchanged; model-specific
+tensor preparation belongs in the HouseDiffusion repository.
+
+The original HouseDiffusion loader needs several additional checks: it remaps
+15/17/16 to internal IDs 11/12/13, so rural sunroom 18 needs an explicit internal
+mapping (the rural adapter uses 14, within the existing 25-way room condition).
+Its default tensors have 100 point slots, 32 corner slots per node, 32 node-index
+slots and 200 graph-triple slots. Validate those capacities after the original
+64-pixel mask / 256-pixel contour extraction, and report exclusions rather than
+silently dropping samples. The shared HouseGAN export must not be truncated to
+satisfy these model-specific limits.
+
+Also choose the split explicitly: the upstream `target_set=8` example produces
+an empty evaluation set when the corpus has only 2–7 rooms. Group duplicate model
+inputs before splitting. Windows single-GPU runs can use a dedicated runner that
+calls the original model/loss/sampler without the upstream MPI/NCCL launcher.
+
 The official dataset constructor takes a text file with one JSON path per line, including
 a newline after the last entry. Generate that list from **only** `HouseGAN/housegan.json`,
 excluding sidecar JSON. For example, in PowerShell:
