@@ -1,13 +1,14 @@
 # Rural data conversion workspace
 
-This uv workspace converts surveyed rural building floor plans into five model-ready formats. It contains six packages:
+This uv workspace converts surveyed rural building floor plans into six model-ready formats. It contains seven packages:
 
-- `conversion-shared` (`shared/`): deterministic cleaner plus the shared conversion framework (vocabulary, schemas, corpus loading, publication).
+- `conversion-shared` (`shared/`): deterministic cleaner plus the shared conversion framework (vocabulary, schemas, corpus loading, publication) and the project-wide train/valid/test split.
 - `conversion-graph` (`graph/`): builds Graph datasets from cleaned canonical records.
 - `conversion-image` (`image/`): builds Image (semantic + room-instance masks) datasets.
 - `conversion-cad` (`cad/`): builds CAD (millimetre primitives + DXF) datasets.
 - `embodied` (`embodied/`): builds deterministic Embodied navigation and token datasets.
 - `conversion-housegan` (`housegan/`): House-GAN++ geometry and a fixed rural vocabulary, including sunroom 18.
+- `conversion-graph2plan` (`graph2plan/`): Graph2Plan / RPLAN `.mat` splits, the rural `rType` mapping, front-door selection and the reused room-room graph.
 
 ## Environment
 
@@ -29,6 +30,7 @@ uv run conversion-graph --force
 uv run conversion-image --force
 uv run conversion-cad --force
 uv run conversion-housegan --input D:\data\house\building.json --output D:\output\house\HouseGAN
+uv run conversion-graph2plan corpus --input-root ..\..\data --output-root D:\output\graph2plan
 uv run embodied build-corpus --input-root ..\..\data\rural_data\cleaned --output-root ..\..\data\rural_data\model_ready\embodied
 ```
 
@@ -50,3 +52,5 @@ uv run mypy --config-file embodied/pyproject.toml embodied/src
 
 See `embodied/README.md` for the Embodied data model and CLI details.
 See `housegan/README.md` for HouseGAN artifacts, class IDs and upstream model usage.
+See `graph2plan/README.md` for Graph2Plan fields, the rural `rType` mapping, front-door
+handling and how to verify the splits with the upstream loader.

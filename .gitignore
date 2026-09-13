@@ -28,7 +28,6 @@ dist-ssr
 
 # Python conversion runtime and generated verification artifacts
 .venv/
-参考/
 __pycache__/
 *.pyc
 .pytest_cache/

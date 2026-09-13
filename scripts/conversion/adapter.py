@@ -141,6 +141,45 @@ def housegan(context: Context, output: Path) -> dict[str, Any]:
     return write_artifacts(context.cleaned.canonical, output)
 
 
+def graph2plan(context: Context, output: Path) -> dict[str, Any]:
+    from conversion_graph2plan.graph2plan import (
+        build_sample,
+        mapping_document,
+        mat_record,
+        quarantine_code,
+        record_schema_document,
+        validate_record,
+    )
+    from conversion_graph2plan.preview import render_preview
+    from conversion_graph2plan.vocabulary import vocabulary
+    try:
+        sample = build_sample(context.cleaned.canonical)
+    except ValueError as exc:
+        if quarantine_code(exc) is None:
+            raise
+        raise Quarantined(str(exc)) from exc
+    record = mat_record(sample)
+    validate_record(record)
+    output.mkdir()
+    write_json(output / "graph2plan.json", {
+        "schema_version": "graph2plan-record/1.0.0",
+        "building_id": context.document["building_id"],
+        "record": record,
+    })
+    write_json(output / "mapping.json", mapping_document(sample))
+    write_json(output / "vocabulary.json", vocabulary())
+    write_json(output / "graph2plan.schema.json", record_schema_document())
+    render_preview(sample).save(output / "preview.png")
+    return {
+        "grid_size": 256,
+        "padding": 8,
+        "edge_source": "canonical derived.room_adjacency (door-mediated)",
+        "rooms": len(sample.rooms),
+        "edges": len(sample.edges),
+        "entrances": len(sample.entrances),
+    }
+
+
 # Add a converter here; task execution and the JSON-lines protocol remain unchanged.
 REGISTRY = {item.id: item for item in (
     Converter("graph", "Graph", "Graph", "1.0.0", ("conversion_graph.graph",), graph, True),
@@ -148,6 +187,7 @@ REGISTRY = {item.id: item for item in (
     Converter("cad", "CAD", "CAD", "1.0.0", ("conversion_cad.cad", "ezdxf"), cad, True),
     Converter("embodied", "Embodied", "Embodied", "1.0.0", ("embodied.pipeline",), embodied),
     Converter("housegan", "HouseGAN", "HouseGAN", "1.0.0", ("conversion_housegan.housegan",), housegan, True),
+    Converter("graph2plan", "Graph2Plan", "Graph2Plan", "1.0.0", ("conversion_graph2plan.graph2plan",), graph2plan, True),
 )}
 
 

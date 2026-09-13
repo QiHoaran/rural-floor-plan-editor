@@ -1,0 +1,16 @@
+[project]
+name = "conversion-graph2plan"
+version = "1.0.0"
+description = "Graph2Plan / RPLAN training data from cleaned rural floor plans"
+requires-python = ">=3.13"
+dependencies = ["conversion-shared", "numpy>=2", "scipy>=1.18", "pillow>=11", "jsonschema>=4"]
+
+[project.scripts]
+conversion-graph2plan = "conversion_graph2plan.cli:main"
+
+[tool.uv.sources]
+conversion-shared = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12.0,<0.13.0"]
+build-backend = "uv_build"

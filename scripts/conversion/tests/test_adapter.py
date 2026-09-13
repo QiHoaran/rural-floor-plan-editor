@@ -63,7 +63,15 @@ class AdapterTests(unittest.TestCase):
         with patch("conversion_shared.records.build_records", wraps=build_records) as records:
             adapter.convert(request, events.append)
         self.assertEqual(records.call_count, 1)
-        self.assertEqual([e["status"] for e in events], ["succeeded"] * 5, events)
+        # Graph2Plan is the one format this fixture cannot express. The fixture room is
+        # unlabelled, so it quarantines on the label mapping; it is also a single room,
+        # which would quarantine as GRAPH2PLAN_DEGENERATE_GRAPH instead because the
+        # upstream loader needs at least two room-room edges.
+        self.assertEqual(
+            [e["status"] for e in events], ["succeeded"] * 5 + ["quarantined"], events
+        )
+        self.assertIn("GRAPH2PLAN_UNMAPPED_ROOM", events[-1]["message"])
+        self.assertFalse((self.root / "Graph2Plan").exists())
         cleaned = build_records(BuildingSource("test", self.source, "test/building.json", request["source_sha256"], self.document))
         read = lambda name: json.loads((self.root / name).read_text(encoding="utf-8"))
         self.assertEqual(read("Graph/graph.json"), build_graph_record(cleaned.canonical, cleaned.training))
@@ -93,7 +101,12 @@ class AdapterTests(unittest.TestCase):
         second.mkdir()
         adapter.convert(dict(request, output_dir=str(second)), lambda _: None)
         for converter in adapter.REGISTRY.values():
-            for file in (self.root / converter.directory).iterdir():
+            directory = self.root / converter.directory
+            if not directory.is_dir():
+                # Quarantined formats publish nothing; assert the second run agrees.
+                self.assertFalse((second / converter.directory).exists(), converter.id)
+                continue
+            for file in directory.iterdir():
                 self.assertEqual(file.read_bytes(), (second / converter.directory / file.name).read_bytes(), file.name)
 
     def test_quarantine_is_distinct_from_programming_errors(self):

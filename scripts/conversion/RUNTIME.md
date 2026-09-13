@@ -42,3 +42,12 @@ DXF 单位图层、PNG 位深、源不可变、隔离和程序错误。
 
 HouseGAN 复用共享清洗结果，独立保留官方类别与阳光房 18；生成四字段数据、词表、源映射和 Schema。
 前端“数据转换”显示 HouseGAN；单独运行方式及模型接入说明见 `housegan/README.md`。
+
+Graph2Plan 同样复用共享清洗结果与 GridTransform 网格，把 canonical 记录写成官方 loader 直接读取的
+`.mat`（name/boundary/rType/gtBoxNew/gtBox/rEdge/order/rBoundary）。房间类别映射到官方 0–12 空间，
+`rEdge` 复用 canonical 的门连通 room-room graph（按上游 bbox 重叠规则另出一份对比统计），
+外门按“服务客厅/厨房、宿主外墙最长”稳定选出主入口写入 `boundary[0:2]`，其余入口记录在 `mapping.json`。
+无法用该格式表达的建筑（例如只有一条 room-room 边的建筑，官方 `squeeze_me` 会使其读取失败）写入
+`exclusions.json` 隔离，不填充伪造数据。语料级 train/valid/test 由 `conversion_shared.split` 统一给出。
+`conversion-graph2plan verify` 用官方 `FloorPlanDataset` 实测读取结果，其额外依赖不进入本工作区锁文件。
+详见 `graph2plan/README.md`。
